@@ -27,9 +27,9 @@ button.primary, #addForm button { background: var(--accent); color: var(--accent
 button.danger { color: var(--danger); }
 button:disabled { opacity: .5; cursor: wait; }
 
-#addForm { display: flex; gap: .4rem; flex: 1 1 320px; }
+#addForm { display: flex; gap: .4rem; flex: 1 1 320px; max-width: 720px; }
 #addInput { flex: 1; min-width: 0; }
-.tools { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
+.tools { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; margin-left: auto; }
 .tools button.on { background: var(--accent); color: var(--accent-text); }
 #syncState { font-size: .8rem; }
 
