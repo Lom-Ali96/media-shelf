@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Media Shelf</title>
+  <meta name="theme-color" content="#5b4bdb">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header>
+    <h1>📚 Media Shelf</h1>
+    <form id="addForm" autocomplete="off" onsubmit="return false">
+      <input id="addInput" placeholder="Add: type a title (any language) or paste a link" aria-label="Title or link to add" required>
+      <button>Add</button>
+    </form>
+    <nav class="tools">
+      <button data-view="library" class="on">Library</button>
+      <button data-view="upcoming">Upcoming</button>
+      <button data-view="stats">Stats</button>
+      <button data-view="settings">Settings</button>
+      <button id="themeBtn" title="Dark / light mode" aria-label="Toggle dark mode">🌓</button>
+      <span id="syncState" class="muted"></span>
+    </nav>
+  </header>
+
+  <section id="library">
+    <div id="tabs" class="tabs" role="tablist"></div>
+    <div class="filters">
+      <input id="search" type="search" placeholder="Search titles, notes, tags…" aria-label="Search">
+      <select id="statusFilter" aria-label="Status"><option value="">Any status</option></select>
+      <select id="tagFilter" aria-label="Tag or list"><option value="">Any tag / list</option></select>
+      <label><input type="checkbox" id="favFilter"> ❤ only</label>
+      <select id="sort" aria-label="Sort">
+        <option value="updated">Recently changed</option>
+        <option value="title">Title A–Z</option>
+        <option value="grade">Best grade</option>
+        <option value="finished">Recently finished</option>
+      </select>
+      <button id="randomBtn" title="Pick something from your Planning list">🎲 What next?</button>
+    </div>
+    <div id="list" class="grid"></div>
+  </section>
+  <section id="upcoming" hidden></section>
+  <section id="stats" hidden></section>
+  <section id="settings" hidden>
+    <h2>Sync with GitHub</h2>
+    <p class="muted">Keeps PC, laptop, tablet and phone the same. Your list is saved as <code>data.json</code> in a <b>private</b> GitHub repository. Each device needs these three things once.</p>
+    <form id="syncForm" class="stack" onsubmit="return false"><!-- never let the browser put the token in the address bar -->
+      <label>GitHub user name <input name="owner" required></label>
+      <label>Private repository for your data <input name="repo" value="media-shelf-data" required></label>
+      <label>Access token <input name="token" type="password" required autocomplete="off"></label>
+      <div><button>Save & sync now</button> <button type="button" id="unsyncBtn">Stop syncing on this device</button></div>
+    </form>
+    <h2>Where to watch</h2>
+    <label>Country for JustWatch links <input id="country" maxlength="2" size="3"></label>
+    <h2>Import & export</h2>
+    <p><label class="btn">Import Excel / CSV… <input type="file" id="importFile" accept=".xlsx,.xls,.csv,.ods" hidden></label>
+      <button id="exportXlsx">Download as Excel</button></p>
+    <p><button id="backupBtn">Download full backup (.json)</button>
+      <label class="btn">Restore backup… <input type="file" id="restoreFile" accept=".json" hidden></label></p>
+    <h2>Release info</h2>
+    <p><button id="refreshBtn">Update release status and next episodes</button></p>
+  </section>
+
+  <dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+  <div id="toast" role="status"></div>
+</body>
+</html>
