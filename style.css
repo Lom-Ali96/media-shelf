@@ -23,12 +23,20 @@ textarea { width: 100%; resize: vertical; }
 button, .btn { cursor: pointer; }
 button:hover, .btn:hover { border-color: var(--accent); }
 button:focus-visible, a:focus-visible, .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-button.primary, #addForm button { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+button.primary, #addForm > button { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 button.danger { color: var(--danger); }
 button:disabled { opacity: .5; cursor: wait; }
 
 #addForm { display: flex; gap: .4rem; flex: 1 1 320px; max-width: 720px; }
 #addInput { flex: 1; min-width: 0; }
+#addForm { position: relative; }
+#suggest { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 5; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px #0005; max-height: 70vh; overflow-y: auto; padding: .3rem; }
+#suggest button { display: flex; gap: .6rem; align-items: center; width: 100%; text-align: left; border: 0; border-radius: 6px; padding: .35rem .5rem; }
+#suggest button[aria-selected="true"], #suggest button:hover { background: var(--line); }
+#suggest img, #suggest .nocover { width: 30px; height: 42px; object-fit: cover; border-radius: 3px; flex: none; }
+#suggest small { color: var(--muted); display: block; }
+#suggest .head { font-size: .75rem; color: var(--muted); padding: .3rem .5rem 0; text-transform: uppercase; letter-spacing: .04em; }
+.fix { color: var(--accent); }
 .tools { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; margin-left: auto; }
 .tools button.on { background: var(--accent); color: var(--accent-text); }
 #syncState { font-size: .8rem; }

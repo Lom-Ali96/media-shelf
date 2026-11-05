@@ -15,8 +15,10 @@
   <header>
     <h1>📚 Media Shelf</h1>
     <form id="addForm" autocomplete="off" onsubmit="return false">
-      <input id="addInput" placeholder="Add: type a title (any language) or paste a link" aria-label="Title or link to add" required>
+      <input id="addInput" placeholder="Add: type a title (any language) or paste a link" aria-label="Title or link to add" required
+        role="combobox" aria-autocomplete="list" aria-controls="suggest" aria-expanded="false">
       <button>Add</button>
+      <div id="suggest" role="listbox" aria-label="Suggestions" hidden></div>
     </form>
     <nav class="tools">
       <button data-view="library" class="on">Library</button>

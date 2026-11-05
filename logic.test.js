@@ -28,6 +28,17 @@ assert.ok(L.findDuplicate([a], { type: 'Manhwa', title: 'x', titles: { alt: ['ë‚
 assert.equal(L.findDuplicate([a], { type: 'Anime', title: 'Solo Leveling' }), undefined);
 assert.equal(L.findDuplicate([{ ...a, deleted: true }], { type: 'Manhwa', title: 'Solo Leveling' }), undefined);
 
+// spelling closeness
+assert.equal(L.similarity('Solo Leveling', 'solo-leveling!'), 1);
+assert.ok(L.similarity('solo levling', 'Solo Leveling') > 0.8);
+assert.ok(L.similarity('frieren', 'friesen') < 0.8);
+assert.ok(L.similarity('Berserk', 'Harry Potter') < 0.2);
+assert.equal(L.similarity('a', 'a'), 1); // one letter: no pairs, still equal
+assert.ok(L.isMatch('frieren', { title: 'Frieren: Beyond Journeyâ€™s End' }));
+assert.ok(L.isMatch('solo levling', { title: 'Solo Leveling' }));
+assert.ok(!L.isMatch('berzerk', { title: 'Harry Potter' }));
+assert.ok(L.bestSimilarity('nihon',{ title: 'x', titles: { romaji: 'Nihon' } }) === 1);
+
 // sync merge: newest edit wins per item, nothing lost
 const old = { id: '1', title: 'old', updatedAt: 1 }, neu = { id: '1', title: 'new', updatedAt: 2 }, other = { id: '2', updatedAt: 1 };
 assert.equal(L.mergeItems([old], [neu, other]).find(i => i.id === '1').title, 'new');

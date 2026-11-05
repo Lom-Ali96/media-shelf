@@ -65,7 +65,23 @@ export function parseLink(url) {
 
 export const normalize = s => (s || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 
-export const allTitles = it => [it.title, it.titles?.english, it.titles?.romaji, it.titles?.native, ...(it.titles?.alt || [])].filter(Boolean);
+// How alike two titles are, 0..1 (letter pairs in common), ignoring case, spaces and punctuation.
+export function similarity(a, b) {
+  const pairs = s => { const n = normalize(s), m = new Map(); for (let i = 0; i < n.length - 1; i++) m.set(n.slice(i, i + 2), (m.get(n.slice(i, i + 2)) || 0) + 1); return m; };
+  const A = pairs(a), B = pairs(b);
+  let common = 0, total = 0;
+  for (const [k, v] of A) { common += Math.min(v, B.get(k) || 0); total += v; }
+  for (const v of B.values()) total += v;
+  return total ? 2 * common / total : normalize(a) === normalize(b) ? 1 : 0;
+}
+
+// Best match of a query among an item's/result's titles.
+export const bestSimilarity = (q, x) => Math.max(0, ...allTitles(x).map(t => similarity(q, t)));
+
+// Typed text clearly found this result: nearly the same, or contained in one of its titles ("frieren" in "Frieren: Beyond …").
+export const isMatch = (q, x) => bestSimilarity(q, x) >= 0.75 || (normalize(q).length >= 3 && allTitles(x).some(t => normalize(t).includes(normalize(q))));
+
+export const allTitles =it => [it.title, it.titles?.english, it.titles?.romaji, it.titles?.native, ...(it.titles?.alt || [])].filter(Boolean);
 
 // Same work in the same section = duplicate. Same title in another section is an adaptation, not a duplicate.
 export function findDuplicate(items, cand) {

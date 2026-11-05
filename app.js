@@ -119,9 +119,79 @@ const statusOptions = sel => Object.entries(L.STATUSES).map(([k, v]) => `<option
 // ---- add ----
 $('#addForm').addEventListener('submit', e => {
   e.preventDefault();
-  const text = $('#addInput').value.trim();
+  hideSuggest();
+  const text = addInput.value.trim();
   if (text) openAdd(text);
 });
+
+// ---- suggestions while typing ----
+const box = $('#suggest'), addInput = $('#addInput');
+let sugTimer, sugSeq = 0, sugActions = [], sugActive = -1;
+const thumb = src => src ? `<img src="${esc(safeUrl(src))}" alt="" loading="lazy">` : '<span class="nocover"></span>';
+
+function hideSuggest() {
+  clearTimeout(sugTimer); sugSeq++; // also cancels a search still running
+  box.hidden = true; sugActive = -1;
+  addInput.setAttribute('aria-expanded', 'false'); addInput.removeAttribute('aria-activedescendant');
+}
+addInput.addEventListener('input', () => {
+  clearTimeout(sugTimer);
+  const q = addInput.value.trim();
+  if (q.length < 2 || L.isUrl(q)) return hideSuggest();
+  sugTimer = setTimeout(() => suggest(q), 350);
+});
+
+async function suggest(q) {
+  const seq = ++sugSeq, nq = L.normalize(q);
+  const mine = live().filter(i => L.bestSimilarity(q, i) >= 0.6 || L.allTitles(i).some(t => L.normalize(t).includes(nq))).slice(0, 3);
+  drawSuggest(q, mine, null, '');
+  let online = [];
+  try { online = (await searchAniList(q)).slice(0, 6); } catch { /* offline: shelf matches still show */ }
+  if (seq !== sugSeq) return; // user kept typing
+  const fix = q.length >= 4 && !online.some(r => L.isMatch(q, r)) ? await spellFix(q) : '';
+  if (seq === sugSeq) drawSuggest(q, mine, online, fix);
+}
+
+function drawSuggest(q, mine, online, fix) {
+  sugActions = [];
+  const opt = (action, inner) => `<button type="button" role="option" id="sug${sugActions.push(action) - 1}" data-s="${sugActions.length - 1}">${inner}</button>`;
+  let html = fix ? opt(() => { addInput.value = fix; suggest(fix); }, `<span class="fix">Did you mean <b>${esc(fix)}</b>?</span>`) : '';
+  if (mine.length) html += '<div class="head">Already on your shelf</div>' + mine.map(i =>
+    opt(() => { hideSuggest(); openEdit(i); }, `${thumb(i.cover)}<span>${esc(i.title)}<small>${esc(i.type)} · ${L.STATUSES[i.status]}</small></span>`)).join('');
+  if (!online) html += '<div class="head">Searching…</div>';
+  else if (online.length) html += '<div class="head">Add</div>' + online.map(r =>
+    opt(() => { hideSuggest(); const it = addCandidate(r, 'planning'); if (it) openEdit(it); },
+      `${thumb(r.cover)}<span>${esc(r.title)}<small>${esc([r.titles.native !== r.title && r.titles.native, r.type, r.year].filter(Boolean).join(' · '))}</small></span>`)).join('');
+  html += opt(() => { hideSuggest(); openAdd(q); }, `<span>🔎 Search everywhere for “${esc(q)}”<small>also books, series, movies and audiobooks</small></span>`);
+  box.innerHTML = html; box.hidden = false; sugActive = -1;
+  addInput.setAttribute('aria-expanded', 'true');
+}
+
+box.addEventListener('click', e => { const b = e.target.closest('[data-s]'); if (b) sugActions[b.dataset.s](); });
+addInput.addEventListener('keydown', e => {
+  if (box.hidden) return;
+  const opts = box.querySelectorAll('[data-s]'), n = opts.length;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    sugActive = e.key === 'ArrowDown' ? (sugActive + 1) % n : (sugActive <= 0 ? n : sugActive) - 1;
+    opts.forEach((o, i) => o.setAttribute('aria-selected', i === sugActive));
+    addInput.setAttribute('aria-activedescendant', opts[sugActive].id);
+    opts[sugActive].scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter' && sugActive >= 0) { e.preventDefault(); sugActions[opts[sugActive].dataset.s](); }
+  else if (e.key === 'Escape') hideSuggest();
+});
+document.addEventListener('click', e => { if (!e.target.closest('#addForm')) hideSuggest(); });
+
+// "Did you mean …?" from Wikipedia's spelling suggestions; only offered when it is close to what was typed.
+async function spellFix(q) {
+  try {
+    const j = await getJson(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(q)}&srinfo=suggestion&srlimit=1&format=json&origin=*`);
+    const fixes = [j.query.searchinfo?.suggestion, j.query.search[0]?.title.replace(/\s*\(.*\)$/, '')]
+      .filter(s => s && L.normalize(s) !== L.normalize(q) && L.similarity(s, q) >= 0.6);
+    const fix = fixes[0] || '';
+    return fix === fix.toLowerCase() ? fix.replace(/(^|\s)\p{L}/gu, c => c.toUpperCase()) : fix;
+  } catch { return ''; }
+}
 
 async function openAdd(text) {
   const link = L.isUrl(text) ? L.parseLink(text) : null;
@@ -135,9 +205,10 @@ async function openAdd(text) {
     <button type="button" id="manAdd">Add</button></div>
     <p><button type="button" data-close>Cancel</button></p>`;
   showDialog(head + (searchable ? '<p class="muted" id="searching">Searching AniList, TVmaze, Wikidata, Open Library and Apple Books…</p>' : '') + manual);
-  let results = [];
+  let results = [], fix = '';
   dlgForm.onclick = e => { // set before searching so "add it yourself" works while the search runs
     if (e.target.closest('[data-close]')) return dlg.close();
+    if (e.target.closest('[data-fix]')) return openAdd(fix);
     const status = $('#addStatus').value;
     const pick = e.target.closest('[data-pick]');
     let cand;
@@ -151,17 +222,21 @@ async function openAdd(text) {
     addCandidate(cand, status);
   };
   if (searchable) {
-    results = await searchAll(query);
+    results = byCloseness(query, await searchAll(query));
+    if (!results.some(r => L.isMatch(query, r))) fix = await spellFix(query);
     if (!dlg.open || !$('#searching')) return; // closed or replaced meanwhile
-    $('#searching').outerHTML = results.length
+    $('#searching').outerHTML = (fix ? `<p><button type="button" class="linklike fix" data-fix>Did you mean “${esc(fix)}”?</button></p>` : '') + (results.length
       ? `<p class="muted">Pick the right one. It goes into the right section automatically.</p>${resultsHtml(results)}`
-      : '<p class="muted">Nothing found online. Add it yourself below.</p>';
+      : '<p class="muted">Nothing found online. Add it yourself below.</p>');
   }
 }
 
+// Closest titles first; equally close ones keep the order the sources gave.
+const byCloseness = (q, list) => list.map(r => [L.bestSimilarity(q, r), r]).sort((a, b) => b[0] - a[0]).map(x => x[1]);
+
 const resultsHtml = results => `<div class="results">${results.map((r, i) => `
   <button type="button" class="result" data-pick="${i}">
-    ${r.cover ? `<img src="${esc(safeUrl(r.cover))}" alt="" loading="lazy">` : '<span class="nocover"></span>'}
+    ${thumb(r.cover)}
     <span><b>${esc(r.title)}</b>
     <small>${esc([r.titles?.romaji, r.titles?.native].filter(t => t && t !== r.title).join(' · '))}</small>
     <small><span class="badge">${esc(r.type)}</span> ${esc(r.year || '')} ${esc(r.author || r.hint || '')} · ${esc(r.src)}</small></span>
@@ -297,7 +372,7 @@ async function openLookup(it) {
     it.progress.total ||= r.total || null;
     save(it); toast('Details added'); openEdit(it);
   };
-  results = await searchAll(it.title);
+  results = byCloseness(it.title, await searchAll(it.title));
   results.sort((a, b) => (b.type === it.type) - (a.type === it.type)); // same section first
   if (!$('#searching')) return;
   $('#searching').outerHTML = results.length ? resultsHtml(results) : '<p class="muted">Nothing found. Try changing the title first.</p>';
@@ -305,7 +380,7 @@ async function openLookup(it) {
 
 // ---------------- online lookups ----------------
 async function getJson(url, opts) {
-  const r = await fetch(url, opts);
+  const r = await fetch(url, { ...opts, signal: AbortSignal.timeout(8000) }); // one slow site must not hold up the others
   if (!r.ok) throw new Error(`${new URL(url).hostname} answered ${r.status}`);
   return r.json();
 }
