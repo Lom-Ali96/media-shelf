@@ -142,8 +142,9 @@ $('#randomBtn').onclick = () => {
 
 // ---------------- dialogs ----------------
 const dlg = $('#dlg'), dlgForm = $('#dlgForm');
-function showDialog(html) { dlgForm.innerHTML = html; if (!dlg.open) dlg.showModal(); }
+function showDialog(html) { stopReading(); dlgForm.oninput = dlgForm.onchange = null; dlgForm.innerHTML = html; if (!dlg.open) dlg.showModal(); }
 dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); }); // click outside closes
+dlg.addEventListener('close', () => stopReading());
 dlgForm.addEventListener('submit', e => e.preventDefault()); // Enter in a field must not close the dialog and lose edits
 
 const typeOptions = sel => L.TYPES.map(t => `<option ${t === sel ? 'selected' : ''}>${t}</option>`).join('');
@@ -324,6 +325,7 @@ function openEdit(it) {
     ${rel.length ? `<h3>Other versions of this story</h3><div class="chips">${rel.map(r => r.have
       ? `<button type="button" data-open="${r.have.id}">✔ ${esc(r.type)}: ${esc(r.title)}</button>`
       : `<button type="button" data-addrel="${r.anilistId}" title="Add to your list">＋ ${esc(r.type)}: ${esc(r.title)} <small>(${esc(r.rel)})</small></button>`).join('')}</div>` : ''}
+    ${[L.BOOKS, 'Fanfic'].includes(it.type) ? '<p><button type="button" id="readBtn">🔊 Read aloud</button></p>' : ''}
     <p><button type="button" id="lookupBtn">🔎 ${Object.keys(it.ext).length ? 'Wrong title or cover? Search again' : 'Find titles, cover and links online'}</button></p>
     ${needsCheck(it) ? '<p><button type="button" id="checkOk">✓ This is correct, stop asking</button></p>' : ''}
     <h3>Read / watch / listen</h3>
@@ -374,6 +376,7 @@ function openEdit(it) {
       } catch (err) { toast('Could not load it: ' + err.message); addRel.disabled = false; }
       return;
     }
+    if (e.target.id === 'readBtn') return openReader(it);
     if (e.target.id === 'lookupBtn') return openLookup(it);
     if (e.target.id === 'checkOk') { it.tags = it.tags.filter(t => t !== 'please check' && t !== 'not found'); save(it); toast('Marked as correct'); return openEdit(it); }
     if (e.target.id === 'delBtn' && confirm(`Delete “${it.title}” from your shelf?`)) {
@@ -488,6 +491,166 @@ function addFromPost(rows, url, note) {
   if (added.length) save(...added);
   dlg.close();
   toast(`Added ${added.length}${skipped ? `, skipped ${skipped} already on your shelf` : ''}.`);
+}
+
+// ---- read aloud: text I paste or load, saved on this device so it also works without internet ----
+let stopReading = () => {};
+
+async function chapterStore(mode, work) {
+  const db = await new Promise((ok, no) => {
+    const open = indexedDB.open('ms-reader', 1);
+    open.onupgradeneeded = () => open.result.createObjectStore('chapters', { keyPath: 'id' }).createIndex('item', 'itemId');
+    open.onsuccess = () => ok(open.result); open.onerror = () => no(open.error);
+  });
+  return new Promise((ok, no) => {
+    const tx = db.transaction('chapters', mode), req = work(tx.objectStore('chapters'));
+    tx.oncomplete = () => { db.close(); ok(req?.result); };
+    tx.onerror = tx.onabort = () => { db.close(); no(tx.error); };
+  });
+}
+const loadChapters = async itemId => (await chapterStore('readonly', s => s.index('item').getAll(itemId))).sort((a, b) => a.n - b.n);
+
+async function openReader(it) {
+  const synth = window.speechSynthesis;
+  if (!synth) return toast('This browser cannot read aloud.');
+  const prefs = settings.tts ||= { rate: 1, pitch: 1, auto: true };
+  const positions = settings.ttsPos ||= {};
+  let chapters = await loadChapters(it.id), pos = positions[it.id] || { ch: 0, s: 0 }, sentences = [], session = 0, spoken = null;
+  pos.ch = Math.min(pos.ch, Math.max(0, chapters.length - 1));
+
+  showDialog(`<h2>🔊 ${esc(it.title)}</h2>
+    <p class="muted small">Paste a chapter or load a .txt file. Text you add stays on this device, so you can listen in flight mode with a device voice. Voices marked "needs internet" won't work offline.</p>
+    <div class="ttsBar"><select id="ttsVoice" aria-label="Voice"></select></div>
+    <div class="ttsSliders">
+      <label>Speed <output id="ttsRateOut"></output><input id="ttsRate" type="range" min="0.5" max="3" step="0.1" value="${prefs.rate}"></label>
+      <label>Pitch (higher or deeper) <output id="ttsPitchOut"></output><input id="ttsPitch" type="range" min="0" max="2" step="0.1" value="${prefs.pitch}"></label>
+    </div>
+    <div class="ttsBar">
+      <select id="ttsChapter" aria-label="Chapter"></select>
+      <button type="button" id="ttsPrev" aria-label="Previous chapter">⏮</button>
+      <button type="button" id="ttsPlay" class="primary">▶ Play</button>
+      <button type="button" id="ttsNext" aria-label="Next chapter">⏭</button>
+    </div>
+    <label class="check"><input type="checkbox" id="ttsAuto" ${prefs.auto ? 'checked' : ''}> Go to the next chapter automatically</label>
+    <div id="ttsText" tabindex="0"></div>
+    <details id="ttsAddBox"><summary>➕ Add chapters</summary>
+      <label>Paste text <small>(lines like "Chapter 12" split it into chapters)</small><textarea id="ttsPaste" rows="4"></textarea></label>
+      <div class="ttsBar"><button type="button" id="ttsAdd">Add pasted text</button> <label class="btn">Load .txt files… <input type="file" id="ttsFile" accept=".txt,text/plain" multiple hidden></label></div>
+    </details>
+    <div class="actions"><button type="button" id="ttsBack">Back</button> <button type="button" id="ttsDel" class="danger">Delete this chapter</button></div>`);
+
+  const box = () => $('#ttsText'), playBtn = () => $('#ttsPlay');
+  const voiceList = () => L.rankVoices(synth.getVoices(), navigator.language);
+  const chosenVoice = () => { // in flight mode, voices that need internet can't speak, so use a device voice instead
+    const all = voiceList().map(v => v.voice), usable = navigator.onLine ? all : all.filter(v => v.localService);
+    return usable.find(v => v.name === prefs.voice) || usable[0] || all[0];
+  };
+
+  function fillVoices() {
+    const list = voiceList(), option = ({ voice: v }) => `<option value="${esc(v.name)}" ${v === chosenVoice() ? 'selected' : ''}>${esc(v.name)} (${esc(v.lang)})${v.localService ? '' : ' · needs internet'}</option>`;
+    const best = list.filter(v => v.recommended), rest = list.filter(v => !v.recommended);
+    const sel = $('#ttsVoice'); if (!sel) return;
+    sel.innerHTML = (best.length ? `<optgroup label="⭐ Recommended">${best.map(option).join('')}</optgroup>` : '') + `<optgroup label="Other voices">${rest.map(option).join('')}</optgroup>` ;
+  }
+  function showNumbers() { $('#ttsRateOut').textContent = (+prefs.rate).toFixed(1) + '×'; $('#ttsPitchOut').textContent = (+prefs.pitch).toFixed(1); }
+
+  function showChapter() {
+    const c = chapters[pos.ch];
+    $('#ttsChapter').innerHTML = chapters.map((x, i) => `<option value="${i}" ${i === pos.ch ? 'selected' : ''}>${esc(x.title)}</option>`).join('') || '<option>No chapters yet</option>';
+    sentences = c ? L.splitSentences(c.text) : [];
+    pos.s = Math.min(pos.s, Math.max(0, sentences.length - 1));
+    box().innerHTML = sentences.map((s, i) => `<span data-s="${i}">${esc(s)} </span>`).join('') || '<p class="muted">Add a chapter below to start listening.</p>';
+    if (!c) $('#ttsAddBox').open = true;
+    mark(false);
+  }
+  function mark(scroll = true) {
+    box().querySelector('.now')?.classList.remove('now');
+    const el = box().querySelector(`[data-s="${pos.s}"]`);
+    if (el) { el.classList.add('now'); if (scroll) el.scrollIntoView({ block: 'nearest' }); }
+  }
+  function remember() { positions[it.id] = pos; saveSettings(); }
+
+  function halt() { session++; synth.cancel(); if (playBtn()) playBtn().textContent = '▶ Play'; }
+  function play() {
+    if (!sentences.length) return toast('Add a chapter first.');
+    const mine = ++session;
+    synth.cancel();
+    playBtn().textContent = '⏸ Pause';
+    const step = () => {
+      if (mine !== session) return;
+      if (pos.s >= sentences.length) {
+        if (prefs.auto && pos.ch < chapters.length - 1) { pos.ch++; pos.s = 0; remember(); showChapter(); return step(); }
+        pos.s = 0; remember(); mark(false);
+        return halt();
+      }
+      mark();
+      spoken = new SpeechSynthesisUtterance(sentences[pos.s]); // kept in a variable: some browsers drop it mid-sentence otherwise
+      spoken.voice = chosenVoice() || null;
+      if (spoken.voice) spoken.lang = spoken.voice.lang;
+      spoken.rate = +prefs.rate; spoken.pitch = +prefs.pitch;
+      spoken.onend = () => { if (mine === session) { pos.s++; remember(); step(); } };
+      spoken.onerror = e => {
+        if (mine !== session || e.error === 'canceled' || e.error === 'interrupted') return;
+        toast('This voice stopped working' + (spoken.voice?.localService ? '.' : '. It may need internet: try a device voice.')); halt();
+      };
+      synth.speak(spoken);
+    };
+    step();
+  }
+  const restartIfPlaying = () => { if (playBtn().textContent.startsWith('⏸')) play(); };
+
+  async function addText(text, title) {
+    const parts = L.splitChapters(text, title), start = chapters.at(-1)?.n ?? -1;
+    if (!parts.length) return toast('There is no text to add.');
+    const made = parts.map((p, i) => ({ id: `${it.id}-${L.newId()}`, itemId: it.id, n: start + 1 + i, title: p.title, text: p.text }));
+    try { await chapterStore('readwrite', s => { made.forEach(m => s.put(m)); }); }
+    catch (err) { return toast('Could not save: ' + err.message); }
+    chapters = await loadChapters(it.id);
+    if (!sentences.length) { pos.ch = 0; pos.s = 0; }
+    showChapter();
+    toast(`Added ${made.length} chapter${made.length > 1 ? 's' : ''}`);
+  }
+
+  stopReading = () => { session++; synth.cancel(); stopReading = () => {}; };
+  synth.onvoiceschanged = fillVoices;
+  fillVoices(); showNumbers(); showChapter();
+
+  dlgForm.oninput = e => {
+    if (e.target.id === 'ttsRate') { prefs.rate = e.target.value; showNumbers(); }
+    else if (e.target.id === 'ttsPitch') { prefs.pitch = e.target.value; showNumbers(); }
+    else return;
+    saveSettings();
+  };
+  dlgForm.onchange = async e => {
+    const id = e.target.id;
+    if (id === 'ttsRate' || id === 'ttsPitch') restartIfPlaying();
+    if (id === 'ttsVoice') { prefs.voice = e.target.value; saveSettings(); restartIfPlaying(); }
+    if (id === 'ttsAuto') { prefs.auto = e.target.checked; saveSettings(); }
+    if (id === 'ttsChapter' && chapters.length) { const was = playBtn().textContent.startsWith('⏸'); halt(); pos.ch = +e.target.value; pos.s = 0; remember(); showChapter(); if (was) play(); }
+    if (id === 'ttsFile') {
+      const files = [...e.target.files]; e.target.value = '';
+      for (const f of files) await addText(await f.text(), f.name.replace(/\.txt$/i, ''));
+    }
+  };
+  dlgForm.onclick = async e => {
+    const id = e.target.id, wasPlaying = playBtn()?.textContent.startsWith('⏸');
+    const sentence = e.target.closest('[data-s]');
+    if (sentence) { pos.s = +sentence.dataset.s; remember(); mark(false); if (wasPlaying) play(); return; }
+    if (id === 'ttsPlay') { if (wasPlaying) { halt(); remember(); } else play(); }
+    if (id === 'ttsPrev' || id === 'ttsNext') {
+      const to = pos.ch + (id === 'ttsNext' ? 1 : -1);
+      if (to < 0 || to >= chapters.length) return;
+      halt(); pos.ch = to; pos.s = 0; remember(); showChapter(); if (wasPlaying) play();
+    }
+    if (id === 'ttsAdd') { const area = $('#ttsPaste'); await addText(area.value, `Chapter ${chapters.length + 1}`); area.value = ''; }
+    if (id === 'ttsDel' && chapters[pos.ch] && confirm(`Delete “${chapters[pos.ch].title}” from this device?`)) {
+      halt();
+      const gone = chapters[pos.ch].id;
+      await chapterStore('readwrite', s => s.delete(gone));
+      chapters = await loadChapters(it.id); pos.ch = Math.min(pos.ch, Math.max(0, chapters.length - 1)); pos.s = 0; remember(); showChapter();
+    }
+    if (id === 'ttsBack') openEdit(it);
+  };
 }
 
 // ---------------- online lookups ----------------

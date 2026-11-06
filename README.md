@@ -43,6 +43,10 @@ My books, novels, light novels, web novels, manga, manhwa, manhua, anime, series
 
 Small icons beside a title show the other versions of that story, like 📕 manga or 📺 anime. **🔎 To check** gathers titles the online check wasn't sure about. **Updates** shows new episodes and status changes, checked once a day while the app is open. With sync on, a daily job in the private data repository also finds new chapters on MangaUpdates.
 
+## Read aloud
+
+In a book or fanfic, press **🔊 Read aloud**, then paste a chapter or load a .txt file. Choose a voice, speed and pitch. Chapters stay on that device (they don't sync), so with a device voice you can listen offline. It can't read websites opened from the app; that needs a separate browser add-on.
+
 ## Books and audiobooks
 
 Light novels, web novels, novels and audiobooks all live in **Books & Novels**. A 🎧 on a card means the book also exists as an audiobook. New books are checked automatically, and Settings can check your whole list.

@@ -142,6 +142,23 @@ const quitter = { id: 'd', title: 'y', status: 'dropped', links: [], latestChapt
 L.applyChapters([quitter], { d: { latest: 2 } }); assert.equal(quitter.news, undefined); assert.equal(quitter.latestChapter, 2);
 assert.deepEqual(L.applyChapters([{ id: 'e', links: [], title: 'z' }], { e: { mu: 0 } }), []); // unknown to MangaUpdates
 
+// read aloud
+assert.deepEqual(L.splitSentences('Hello there. How are you?\n\n"Fine!" she said'), ['Hello there.', 'How are you?', '"Fine!"', 'she said']);
+assert.deepEqual(L.splitSentences(''), []);
+assert.deepEqual(L.splitSentences('...\n***'), []); // nothing to say
+assert.ok(L.splitSentences('word '.repeat(300)).every(s => s.length <= 220));
+assert.equal(L.splitSentences('word '.repeat(300)).join(' ').split(' ').length, 300); // nothing lost when long text is cut
+assert.equal(L.splitSentences('x'.repeat(500)).join('').length, 500); // even with no spaces
+assert.deepEqual(L.splitSentences('これは本です。次の文！'), ['これは本です。', '次の文！']);
+const twoCh = L.splitChapters('Intro line\nChapter 1: Start\nOne text.\nChapter 2\nTwo text.', 'My file');
+assert.deepEqual(twoCh, [{ title: 'Chapter 1: Start', text: 'One text.' }, { title: 'Chapter 2', text: 'Two text.' }]);
+assert.deepEqual(L.splitChapters('Just some text.', 'My file'), [{ title: 'My file', text: 'Just some text.' }]);
+assert.deepEqual(L.splitChapters('   ', 'x'), []);
+assert.deepEqual(L.splitChapters('A chapter 5 mention in a sentence, and\nChapter 7 alone').length, 1); // one heading isn't a list of chapters
+const ranked = L.rankVoices([{ name: 'Old', lang: 'en-US' }, { name: 'Ana (Natural)', lang: 'de-DE' }, { name: 'Aria Online (Natural)', lang: 'en-US' }, { name: 'Pierre Online', lang: 'fr-FR' }, { name: 'Google US', lang: 'en-US' }], 'de-DE');
+assert.deepEqual(ranked.map(r => r.voice.name), ['Ana (Natural)', 'Aria Online (Natural)', 'Pierre Online', 'Google US', 'Old']);
+assert.deepEqual(ranked.map(r => r.recommended), [true, true, false, true, false]);
+
 // websites
 assert.equal(L.siteKey('https://www.royalroad.com/'), 'royalroad.com');
 assert.equal(L.siteKey('not a link'), 'not a link');

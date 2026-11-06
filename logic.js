@@ -90,7 +90,7 @@ export function findDuplicate(items, cand) {
     ((cand.ext?.anilist && it.ext?.anilist === cand.ext.anilist) || allTitles(it).some(t => names.has(normalize(t)))));
 }
 
-const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+export const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
 export function makeItem(c, now = Date.now()) {
   const type = TYPES.includes(c.type) ? c.type : 'Other';
@@ -365,4 +365,42 @@ export function applyChapters(items, updates) {
     changed.push(it);
   }
   return changed;
+}
+
+// ---------- read aloud ----------
+const MAX_SPOKEN = 220; // browsers can stop speaking in the middle of very long sentences
+
+// Text -> short pieces to speak one after another.
+export function splitSentences(text) {
+  const out = [];
+  for (const para of String(text || '').split(/\n+/)) {
+    for (const raw of para.match(/[^.!?…。！？]+[.!?…。！？]*["'”’)\]]*\s*|[.!?…。！？]+\s*/g) || []) {
+      let s = raw.trim();
+      while (s.length > MAX_SPOKEN) {
+        const cut = Math.max(s.lastIndexOf(', ', MAX_SPOKEN), s.lastIndexOf(' ', MAX_SPOKEN));
+        const at = cut > 40 ? cut + 1 : MAX_SPOKEN;
+        out.push(s.slice(0, at).trim());
+        s = s.slice(at).trim();
+      }
+      if (/[\p{L}\p{N}]/u.test(s)) out.push(s);
+    }
+  }
+  return out;
+}
+
+// One pasted text or file -> chapters, using lines like "Chapter 12" when there are at least two.
+export function splitChapters(text, fallback = 'Chapter') {
+  const heading = /^[ \t]*(chapter|kapitel|ch\.)[ \t]*\d+[^\n]{0,80}$/gim;
+  const marks = [...String(text || '').matchAll(heading)];
+  if (marks.length < 2) return String(text || '').trim() ? [{ title: fallback, text: String(text).trim() }] : [];
+  return marks.map((m, i) => ({ title: m[0].trim(), text: text.slice(m.index + m[0].length, marks[i + 1]?.index ?? text.length).trim() })).filter(c => c.text);
+}
+
+// Best sounding first: the "natural" kinds, then good device voices. The reader's language comes first within each kind.
+export function rankVoices(voices, lang = 'en') {
+  const quality = v => /natural|neural|online/i.test(v.name) ? 3 : /premium|enhanced|siri|google/i.test(v.name) ? 2 : 0;
+  const base = lang.slice(0, 2).toLowerCase();
+  const closeness = v => { const l = (v.lang || '').slice(0, 2).toLowerCase(); return l === base ? 2 : l === 'en' ? 1 : 0; };
+  return [...voices].sort((a, b) => quality(b) - quality(a) || closeness(b) - closeness(a) || a.name.localeCompare(b.name))
+    .map(voice => ({ voice, recommended: quality(voice) > 0 && closeness(voice) > 0 }));
 }

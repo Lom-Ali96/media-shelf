@@ -112,6 +112,14 @@ th, td { border: 1px solid var(--line); padding: .35rem .6rem; text-align: left;
 #sites h2 { border-bottom: 1px solid var(--line); padding-bottom: .2rem; }
 .versions { font-weight: 400; font-size: .85em; white-space: nowrap; }
 .legend { font-size: .8rem; margin: -.5rem 0 .7rem; }
+.ttsBar { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .5rem 0; }
+.ttsBar select { flex: 1 1 200px; min-width: 0; }
+.ttsSliders { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0 1rem; }
+.ttsSliders input { padding: 0; }
+#ttsText { max-height: 34vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; padding: .6rem; line-height: 1.6; }
+#ttsText span { cursor: pointer; border-radius: 3px; }
+#ttsText span:hover { background: var(--line); }
+#ttsText span.now { background: var(--accent); color: var(--accent-text); }
 #toast { position: fixed; left: 50%; bottom: 1.2rem; transform: translateX(-50%) translateY(150%); background: var(--text); color: var(--bg); padding: .6rem 1rem; border-radius: 10px; transition: transform .25s; max-width: 92vw; z-index: 10; }
 #toast.show { transform: translateX(-50%); }
 
