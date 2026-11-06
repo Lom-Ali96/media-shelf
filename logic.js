@@ -1,11 +1,11 @@
 // Pure helpers (no screen, no network) so they can be tested with `node logic.test.js`.
 
-export const TYPES = ['Anime', 'Manga', 'Manhwa', 'Manhua', 'Light novel', 'Web novel', 'Novel', 'Fanfic',
-  'Series', 'Movie', 'Audiobook', 'TikTok', 'Video', 'Other'];
+export const TYPES = ['Anime & Series', 'Manga', 'Manhwa', 'Manhua', 'Light novel', 'Web novel', 'Novel', 'Fanfic',
+  'Movie', 'Audiobook', 'TikTok', 'Video', 'Other'];
 
 export const STATUSES = { planning: 'Planning', progress: 'In progress', finished: 'Finished', paused: 'Paused', dropped: 'Dropped' };
 
-const UNIT_FOR = { Anime: 'ep', Series: 'ep', Movie: 'min', Audiobook: 'h', Novel: 'page', Video: 'min', TikTok: 'part', Other: '' };
+const UNIT_FOR = { 'Anime & Series': 'ep', Movie: 'min', Audiobook: 'h', Novel: 'page', Video: 'min', TikTok: 'part', Other: '' };
 export const unitFor = type => UNIT_FOR[type] ?? 'ch';
 
 export const RELEASE = { RELEASING: 'Ongoing', FINISHED: 'Complete', HIATUS: 'On hiatus', NOT_YET_RELEASED: 'Not out yet',
@@ -16,7 +16,7 @@ export function anilistType(m) {
   const c = m.countryOfOrigin;
   if (m.format === 'NOVEL') return c === 'JP' ? 'Light novel' : 'Web novel';
   if (m.type === 'MANGA') return c === 'KR' ? 'Manhwa' : (c === 'CN' || c === 'TW') ? 'Manhua' : 'Manga';
-  return 'Anime';
+  return 'Anime & Series';
 }
 
 const SITES = [
@@ -33,11 +33,11 @@ const SITES = [
   [/mangaplus/, 'MANGA Plus', 'Manga'],
   [/webtoons\.com/, 'Webtoon', 'Manhwa'],
   [/tapas\.io/, 'Tapas', 'Manhwa'],
-  [/anilist\.co\/anime/, 'AniList', 'Anime'],
+  [/anilist\.co\/anime/, 'AniList', 'Anime & Series'],
   [/anilist\.co\/manga/, 'AniList', 'Manga'],
-  [/myanimelist\.net\/anime/, 'MyAnimeList', 'Anime'],
+  [/myanimelist\.net\/anime/, 'MyAnimeList', 'Anime & Series'],
   [/myanimelist\.net\/manga/, 'MyAnimeList', 'Manga'],
-  [/crunchyroll\.com/, 'Crunchyroll', 'Anime'],
+  [/crunchyroll\.com/, 'Crunchyroll', 'Anime & Series'],
   [/imdb\.com/, 'IMDb', 'Movie'],
   [/goodreads\.com/, 'Goodreads', 'Novel'],
   [/audible\./, 'Audible', 'Audiobook'],
@@ -107,8 +107,12 @@ export function makeItem(c, now = Date.now()) {
   };
 }
 
+// Lists saved before Anime and Series became one section.
+export const migrate = list => { for (const i of list) if (i.type === 'Anime' || i.type === 'Series') i.type = 'Anime & Series'; return list; };
+
 // Two copies of the list (this device + GitHub): per item, the newest edit wins. Deleted items stay as markers.
 export function mergeItems(a, b) {
+  migrate(b);
   const byId = new Map(a.map(it => [it.id, it]));
   for (const it of b) {
     const mine = byId.get(it.id);
@@ -130,7 +134,7 @@ export function findLinks(it, country = 'us') {
   const fic = [L('AO3', `https://archiveofourown.org/works/search?work_search%5Bquery%5D=${q}`),
     L('FanFiction.net', `https://www.fanfiction.net/search/?keywords=${q}&type=story`), L('Wattpad', `https://www.wattpad.com/search/${q}`)];
   return {
-    Anime: watch, Series: watch, Movie: watch,
+    'Anime & Series': watch, Movie: watch,
     Manga: [...comic, L('MANGA Plus', 'https://mangaplus.shueisha.co.jp/search_result?keyword=' + q)],
     Manhwa: [...comic, L('Webtoon', `https://www.webtoons.com/en/search?keyword=${q}`), L('Tapas', `https://tapas.io/search?q=${q}`)],
     Manhua: comic,
@@ -165,8 +169,8 @@ export function guessColumns(header) {
 
 const TYPE_WORDS = [
   [/light ?novel|\bln\b/, 'Light novel'], [/web ?novel|\bwn\b|novelupdates/, 'Web novel'], [/manhwa|webtoon/, 'Manhwa'],
-  [/manhua/, 'Manhua'], [/manga/, 'Manga'], [/anime/, 'Anime'], [/fanfic|fan fic|ao3|\bff\b/, 'Fanfic'],
-  [/audio|hörbuch|hoerbuch/, 'Audiobook'], [/movie|film/, 'Movie'], [/series|serie|show|\btv\b/, 'Series'],
+  [/manhua/, 'Manhua'], [/manga/, 'Manga'], [/anime|series|serie|show|\btv\b/, 'Anime & Series'], [/fanfic|fan fic|ao3|\bff\b/, 'Fanfic'],
+  [/audio|hörbuch|hoerbuch/, 'Audiobook'], [/movie|film/, 'Movie'],
   [/tiktok/, 'TikTok'], [/youtube|video/, 'Video'], [/novel|book|b[uü]ch|roman/, 'Novel'],
 ];
 export const typeFromText = s => (TYPE_WORDS.find(([re]) => re.test(String(s || '').toLowerCase())) || [])[1];

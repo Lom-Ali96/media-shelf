@@ -7,7 +7,7 @@ assert.equal(L.anilistType({ type: 'MANGA', format: 'MANGA', countryOfOrigin: 'K
 assert.equal(L.anilistType({ type: 'MANGA', format: 'MANGA', countryOfOrigin: 'CN' }), 'Manhua');
 assert.equal(L.anilistType({ type: 'MANGA', format: 'NOVEL', countryOfOrigin: 'JP' }), 'Light novel');
 assert.equal(L.anilistType({ type: 'MANGA', format: 'NOVEL', countryOfOrigin: 'KR' }), 'Web novel');
-assert.equal(L.anilistType({ type: 'ANIME', format: 'MOVIE', countryOfOrigin: 'JP' }), 'Anime');
+assert.equal(L.anilistType({ type: 'ANIME', format: 'MOVIE', countryOfOrigin: 'JP' }), 'Anime & Series');
 
 // links
 assert.deepEqual(L.parseLink('https://www.fanfiction.net/s/1234567/1/Harry-Potter-and-the-Something'),
@@ -25,7 +25,7 @@ assert.ok(L.isUrl('https://ao3.org/x') && !L.isUrl('Solo Leveling'));
 const a = L.makeItem({ type: 'Manhwa', title: 'Solo Leveling', titles: { native: '나 혼자만 레벨업' } });
 assert.ok(L.findDuplicate([a], { type: 'Manhwa', title: 'solo-leveling!' }));
 assert.ok(L.findDuplicate([a], { type: 'Manhwa', title: 'x', titles: { alt: ['나 혼자만 레벨업'] } }));
-assert.equal(L.findDuplicate([a], { type: 'Anime', title: 'Solo Leveling' }), undefined);
+assert.equal(L.findDuplicate([a], { type: 'Anime & Series', title: 'Solo Leveling' }), undefined);
 assert.equal(L.findDuplicate([{ ...a, deleted: true }], { type: 'Manhwa', title: 'Solo Leveling' }), undefined);
 
 // spelling closeness
@@ -44,6 +44,10 @@ const old = { id: '1', title: 'old', updatedAt: 1 }, neu = { id: '1', title: 'ne
 assert.equal(L.mergeItems([old], [neu, other]).find(i => i.id === '1').title, 'new');
 assert.equal(L.mergeItems([neu], [old]).find(i => i.id === '1').title, 'new');
 assert.equal(L.mergeItems([neu], [other]).length, 2);
+
+assert.equal(L.migrate([{ type: 'Series' }])[0].type, 'Anime & Series');
+assert.equal(L.mergeItems([], [{ id: '9', type: 'Anime' }])[0].type, 'Anime & Series');
+assert.equal(L.typeFromText('TV show'), 'Anime & Series');
 
 // search links follow the section
 assert.ok(L.findLinks({ type: 'Fanfic', title: 'A b' }).some(l => l.url.startsWith('https://archiveofourown.org/') && l.url.includes('A%20b')));

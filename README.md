@@ -38,7 +38,7 @@ My books, novels, light novels, web novels, manga, manhwa, manhua, anime, series
 
 ## Where the information comes from
 
-AniList (anime, manga, manhwa, manhua, light novels), TVmaze (series), Wikidata (movies), Open Library (books), Apple Books (audiobooks). Fanfics and web novels can't be looked up automatically, so the app reads the title from the link where it can, and gives you search links for AO3, FanFiction.net, NovelUpdates and more.
+AniList (anime, manga, manhwa, manhua, light novels), TVmaze (series, in the "Anime & Series" section), Wikipedia (movies), Open Library (books), Apple Books (audiobooks). Fanfics and web novels can't be looked up automatically, so the app reads the title from the link where it can, and gives you search links for AO3, FanFiction.net, NovelUpdates and more.
 
 ## For whoever changes the code
 

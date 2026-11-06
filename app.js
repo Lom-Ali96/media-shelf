@@ -6,7 +6,7 @@ const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : '';
 const today = () => L.parseDate(new Date());
 const csv = s => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
 
-let items = JSON.parse(localStorage.getItem('ms-items') || '[]');
+let items = L.migrate(JSON.parse(localStorage.getItem('ms-items') || '[]'));
 const settings = JSON.parse(localStorage.getItem('ms-settings') || '{}');
 const ui = { type: '' };
 const live = () => items.filter(i => !i.deleted);
@@ -204,7 +204,7 @@ async function openAdd(text) {
     <label>Section <select id="manType">${typeOptions(link?.type || 'Other')}</select></label>
     <button type="button" id="manAdd">Add</button></div>
     <p><button type="button" data-close>Cancel</button></p>`;
-  showDialog(head + (searchable ? '<p class="muted" id="searching">Searching AniList, TVmaze, Wikidata, Open Library and Apple Books…</p>' : '') + manual);
+  showDialog(head + (searchable ? '<p class="muted" id="searching">Searching AniList, TVmaze, Wikipedia, Open Library and Apple Books…</p>' : '') + manual);
   let results = [], fix = '';
   dlgForm.onclick = e => { // set before searching so "add it yourself" works while the search runs
     if (e.target.closest('[data-close]')) return dlg.close();
@@ -282,7 +282,7 @@ function openEdit(it) {
     ${rel.length ? `<h3>Other versions of this story</h3><div class="chips">${rel.map(r => r.have
       ? `<button type="button" data-open="${r.have.id}">✔ ${esc(r.type)}: ${esc(r.title)}</button>`
       : `<button type="button" data-addrel="${r.anilistId}" title="Add to your list">＋ ${esc(r.type)}: ${esc(r.title)} <small>(${esc(r.rel)})</small></button>`).join('')}</div>` : ''}
-    ${Object.keys(it.ext).length ? '' : '<p><button type="button" id="lookupBtn">🔎 Find titles, cover and links online</button></p>'}
+    <p><button type="button" id="lookupBtn">🔎 ${Object.keys(it.ext).length ? 'Wrong title or cover? Search again' : 'Find titles, cover and links online'}</button></p>
     <h3>Read / watch / listen</h3>
     <div class="chips">${it.links.map(l => safeUrl(l.url) && `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label || 'Link')}</a>`).join('')}</div>
     <p class="muted small">Search on: ${finds.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`).join(' · ')}</p>
@@ -370,6 +370,7 @@ async function openLookup(it) {
       relations: r.relations || [], links: [...it.links, ...(r.links || []).filter(l => !it.links.some(m => m.url === l.url))],
     });
     it.progress.total ||= r.total || null;
+    it.tags = it.tags.filter(t => t !== 'please check' && t !== 'not found');
     save(it); toast('Details added'); openEdit(it);
   };
   results = byCloseness(it.title, await searchAll(it.title));
@@ -422,7 +423,7 @@ const aniListByIds = async ids => (await aniList(`query($ids:[Int]){Page(perPage
 async function searchTvmaze(q) {
   const res = await getJson(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(q)}`);
   return res.slice(0, 5).map(({ show: s }) => ({
-    src: 'TVmaze', type: s.type === 'Animation' && s.language === 'Japanese' ? 'Anime' : 'Series', title: s.name,
+    src: 'TVmaze', type: 'Anime & Series', title: s.name,
     cover: s.image?.medium, genres: s.genres, year: s.premiered?.slice(0, 4), releaseStatus: L.RELEASE[s.status] || s.status, ext: { tvmaze: s.id },
     links: [s.officialSite && { label: (s.webChannel || s.network)?.name || 'Official site', url: s.officialSite }, { label: 'TVmaze', url: s.url }].filter(Boolean),
   }));
@@ -445,12 +446,12 @@ async function searchAudiobooks(q) {
   }));
 }
 
-// Wikidata knows films by name ("2021 film directed by …"); no covers, but no key needed either.
+// Wikipedia knows films by name and has their posters, with no key needed.
 async function searchMovies(q) {
-  const res = await getJson(`https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(q)}&language=en&uselang=en&type=item&format=json&origin=*&limit=20`);
-  return res.search.filter(s => /\bfilm\b/.test(s.description || '') && !/series/.test(s.description)).slice(0, 4).map(s => ({
-    src: 'Wikidata', type: 'Movie', title: s.label, year: s.description.match(/\b\d{4}\b/)?.[0], hint: s.description.replace(/^\d{4} /, ''),
-    ext: { wikidata: s.id }, links: [{ label: 'Wikidata', url: `https://www.wikidata.org/wiki/${s.id}` }],
+  const res = await getJson(`https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(q + ' film')}&gsrlimit=8&prop=pageimages|description|info&inprop=url&piprop=thumbnail&pithumbsize=300&pilicense=any&format=json&formatversion=2&origin=*`);
+  return (res.query?.pages || []).sort((x, y) => x.index - y.index).filter(p => /\bfilm\b/.test(p.description || '') && !/series/.test(p.description)).slice(0, 4).map(p => ({
+    src: 'Wikipedia', type: 'Movie', title: p.title.replace(/\s*\([^)]*\)$/, ''), cover: p.thumbnail?.source, year: p.description.match(/\b\d{4}\b/)?.[0], hint: p.description.replace(/^\d{4} /, ''),
+    ext: { wikipedia: p.pageid }, links: [{ label: 'Wikipedia', url: p.fullurl }],
   }));
 }
 
