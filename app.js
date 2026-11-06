@@ -9,7 +9,8 @@ const csv = s => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
 let items = L.migrate(JSON.parse(localStorage.getItem('ms-items') || '[]'));
 const settings = JSON.parse(localStorage.getItem('ms-settings') || '{}');
 const ui = { type: '' };
-const live = () => items.filter(i => !i.deleted);
+const live = () => items.filter(i => !i.deleted && i.type !== 'Website'); // websites share the list so they sync and back up too
+const sites = () => items.filter(i => !i.deleted && i.type === 'Website');
 const byId = id => items.find(i => i.id === id);
 
 function persist() {
@@ -101,10 +102,32 @@ $('#list').addEventListener('click', e => {
 $('#list').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.card')) openEdit(byId(e.target.dataset.id)); });
 
 $('#randomBtn').onclick = () => {
-  const pool = filtered().filter(i => i.status === 'planning');
-  if (!pool.length) return toast('Nothing with status “Planning” in this view.');
-  const it = pool[Math.floor(Math.random() * pool.length)];
-  toast(`🎲 How about: ${it.title} (${it.type})`); openEdit(it);
+  const planned = live().filter(i => i.status === 'planning');
+  const types = L.TYPES.filter(t => planned.some(i => i.type === t));
+  if (!types.length) return toast('Nothing with status “Planning” yet.');
+  const chosen = settings.randomTypes || types;
+  showDialog(`<h2>🎲 What next?</h2><p class="muted">Pick at random from your Planning list, in these sections:</p>
+    <div class="checks">${types.map(t => `<label><input type="checkbox" name="rt" value="${esc(t)}" ${chosen.includes(t) ? 'checked' : ''}> ${esc(t)} <small class="muted">${planned.filter(i => i.type === t).length}</small></label>`).join('')}</div>
+    <p><button type="button" data-all="1">All</button> <button type="button" data-all="">None</button></p>
+    <div id="pickResult"></div>
+    <div class="actions"><button type="button" id="pickBtn" class="primary">🎲 Pick</button> <button type="button" data-close>Close</button></div>`);
+  const boxes = () => [...dlgForm.querySelectorAll('[name=rt]')];
+  dlgForm.onclick = e => {
+    if (e.target.closest('[data-close]')) return dlg.close();
+    const all = e.target.closest('[data-all]');
+    if (all) return boxes().forEach(b => { b.checked = !!all.dataset.all; });
+    const open = e.target.closest('[data-open]');
+    if (open) return openEdit(byId(open.dataset.open));
+    if (e.target.id !== 'pickBtn') return;
+    settings.randomTypes = boxes().filter(b => b.checked).map(b => b.value); saveSettings();
+    const pool = planned.filter(i => settings.randomTypes.includes(i.type));
+    if (!pool.length) return toast('Tick at least one section.');
+    const it = pool[Math.floor(Math.random() * pool.length)];
+    $('#pickResult').innerHTML = `<div class="pick">${it.cover ? thumb(it.cover) : `<span class="nocover">${esc(it.type)}</span>`}
+      <div><h3>${esc(it.title)}</h3><p class="muted">${esc(it.type)}${it.genres?.length ? ' · ' + esc(it.genres.slice(0, 3).join(', ')) : ''}</p>
+      <button type="button" data-open="${it.id}">Open</button></div></div>`;
+    e.target.textContent = '🎲 Pick another';
+  };
 };
 
 // ---------------- dialogs ----------------
@@ -121,7 +144,8 @@ $('#addForm').addEventListener('submit', e => {
   e.preventDefault();
   hideSuggest();
   const text = addInput.value.trim();
-  if (text) openAdd(text);
+  if (!text) return;
+  if (['TikTok', 'Video'].includes(L.isUrl(text) && L.parseLink(text)?.type)) { addInput.value = ''; openPost(text); } else openAdd(text);
 });
 
 // ---- suggestions while typing ----
@@ -232,7 +256,7 @@ async function openAdd(text) {
 }
 
 // Closest titles first; equally close ones keep the order the sources gave.
-const byCloseness = (q, list) => list.map(r => [L.bestSimilarity(q, r), r]).sort((a, b) => b[0] - a[0]).map(x => x[1]);
+const byCloseness = (q, list, prefer) => list.map(r => [L.bestSimilarity(q, r), r]).sort((a, b) => b[0] - a[0] || (b[1].type === prefer) - (a[1].type === prefer)).map(x => x[1]);
 
 const resultsHtml = results => `<div class="results">${results.map((r, i) => `
   <button type="button" class="result" data-pick="${i}">
@@ -379,6 +403,72 @@ async function openLookup(it) {
   $('#searching').outerHTML = results.length ? resultsHtml(results) : '<p class="muted">Nothing found. Try changing the title first.</p>';
 }
 
+// ---- shared posts: read the caption or pasted text, offer the titles found ----
+$('#pasteBtn').onclick = () => openPost('');
+
+// Only YouTube shares a post's title with outside apps; TikTok's answer has no caption.
+async function postCaption(url) {
+  if (L.parseLink(url)?.site !== 'YouTube') return '';
+  try { return (await getJson('https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent(url))).title || ''; }
+  catch { return ''; } // private or deleted video, or offline: pasted text still works
+}
+
+function openPost(text) {
+  showDialog(`<h2>📋 Paste a post or recommendations</h2>
+    <p class="muted">Paste a link together with the caption or a list of titles. TikTok does not let apps read its captions, and no app here can see what is said or shown in a video, so type or copy those titles into the box too. For YouTube, the video's title is read for you.</p>
+    <label>Post or list <textarea id="postText" rows="6" placeholder="https://www.tiktok.com/@…\n1. Dune\n2. Fourth Wing">${esc(text)}</textarea></label>
+    <div class="actions"><button type="button" id="postFind" class="primary">Find titles</button> <button type="button" data-close>Cancel</button></div>
+    <div id="postResult"></div>`);
+  let rows = [], url = '', note = '';
+  dlgForm.onclick = async e => {
+    if (e.target.closest('[data-close]')) return dlg.close();
+    if (e.target.id === 'postAdd') return addFromPost(rows, url, note);
+    if (e.target.id !== 'postFind') return;
+    e.target.disabled = true;
+    const typed = $('#postText').value, out = $('#postResult');
+    url = typed.match(/https?:\/\/\S+/)?.[0] || '';
+    out.innerHTML = '<p class="muted">Reading the post…</p>';
+    const caption = url ? await postCaption(url) : '';
+    note = caption || typed.replace(url, '').trim();
+    const words = (typed + '\n' + caption).replace(/https?:\/\/\S+/g, ' ');
+    const titles = L.extractTitles(words), prefer = L.typeFromText(words) || (/\sby\s/i.test(words) ? 'Novel' : ''); // "booktok" or "by <author>": the book version first
+    rows = [];
+    for (const [n, title] of titles.entries()) {
+      if (!$('#postResult')) return; // dialog was closed
+      out.innerHTML = `<p class="muted">Searching ${n + 1} of ${titles.length}: ${esc(title)}…</p>`;
+      rows.push({ title, results: byCloseness(title, await searchAll(title), prefer).slice(0, 5) });
+    }
+    if (!$('#postResult')) return;
+    e.target.disabled = false;
+    out.innerHTML = `${caption ? `<h3>Caption</h3><p class="caption">${esc(caption)}</p>` : ''}
+      ${rows.length ? '<h3>Titles found</h3><p class="muted">Untick anything wrong, and choose the right version.</p>' : `<p class="muted">No titles found. Add them to the box above and press Find titles again${url ? ', or just save the link below' : ''}.</p>`}
+      <div class="found">${rows.map((r, i) => `<label><input type="checkbox" data-row="${i}" ${r.results.some(x => L.isMatch(r.title, x)) ? 'checked' : ''} aria-label="Add ${esc(r.title)}">
+        <select data-choice="${i}" aria-label="Version of ${esc(r.title)}">${r.results.map((x, k) => `<option value="${k}">${esc(x.title)} (${esc(x.type)}${x.year ? ', ' + esc(x.year) : ''})</option>`).join('')}
+        <option value="typed">“${esc(r.title)}” as written (Other)</option></select></label>`).join('')}</div>
+      ${url ? `<label class="check"><input type="checkbox" id="postSave" checked> Also save the post itself</label>` : ''}
+      ${rows.length || url ? '<div class="actions"><button type="button" id="postAdd" class="primary">Add to my shelf</button></div>' : ''}`;
+  };
+}
+
+function addFromPost(rows, url, note) {
+  const source = url || 'shared post', added = [];
+  let skipped = 0;
+  rows.forEach((r, i) => {
+    if (!dlgForm.querySelector(`[data-row="${i}"]`).checked) return;
+    const choice = dlgForm.querySelector(`[data-choice="${i}"]`).value;
+    const cand = choice === 'typed' ? { title: r.title, type: 'Other' } : r.results[choice];
+    if (L.findDuplicate(items, cand)) { skipped++; return; }
+    added.push(L.makeItem({ ...cand, source, tags: ['from a post'] }));
+  });
+  if (url && $('#postSave')?.checked && !items.some(i => !i.deleted && i.links?.some(l => l.url === url))) {
+    const link = L.parseLink(url);
+    added.push(L.makeItem({ type: link?.type, title: note.split('\n')[0].slice(0, 90) || `${link?.site || 'Saved'} post`, notes: note, links: [{ label: link?.site || 'Link', url }], tags: ['from a post'] }));
+  }
+  if (added.length) save(...added);
+  dlg.close();
+  toast(`Added ${added.length}${skipped ? `, skipped ${skipped} already on your shelf` : ''}.`);
+}
+
 // ---------------- online lookups ----------------
 async function getJson(url, opts) {
   const r = await fetch(url, { ...opts, signal: AbortSignal.timeout(8000) }); // one slow site must not hold up the others
@@ -493,7 +583,8 @@ async function refreshReleases() {
 // ---------------- other screens ----------------
 function showView(name) {
   document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === name));
-  for (const id of ['library', 'upcoming', 'stats', 'settings']) $('#' + id).hidden = id !== name;
+  for (const id of ['library', 'sites', 'upcoming', 'stats', 'settings']) $('#' + id).hidden = id !== name;
+  if (name === 'sites') renderSites();
   if (name === 'upcoming') renderUpcoming();
   if (name === 'stats') renderStats();
   if (name === 'settings') fillSettings();
@@ -514,7 +605,7 @@ function renderUpcoming() {
 $('#upcoming').addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) openEdit(byId(b.dataset.open)); });
 
 function renderStats() {
-  const s = L.stats(items);
+  const s = L.stats(live());
   const years = Object.entries(s.byYear).sort().reverse(), max = Math.max(1, ...years.map(y => y[1]));
   $('#stats').innerHTML = `<h2>Your shelf in numbers</h2><p>${s.total} titles in total.</p>
     <table><thead><tr><th>Section</th><th>Titles</th><th>Finished</th><th>Average grade</th></tr></thead><tbody>
@@ -524,6 +615,66 @@ function renderStats() {
     ${years.map(([y, n]) => `<div class="bar"><span>${y}</span><i style="width:${n / max * 100}%"></i><b>${n}</b></div>`).join('') || '<p class="muted">No finish dates yet.</p>'}
     <h2>Favourite genres</h2>
     <p>${s.topGenres.map(([g, n]) => `<span class="chip">${esc(g)} ${n}</span>`).join(' ') || '<span class="muted">No genres yet.</span>'}</p>`;
+}
+
+// ---------------- useful websites ----------------
+function renderSites() {
+  const box = $('#sites'), keep = box.querySelector('#siteSearch')?.value || '', nq = L.normalize(keep), all = sites();
+  const shown = all.filter(s => !nq || L.normalize([s.title, s.note, s.folder, s.url].join(' ')).includes(nq));
+  const tree = {};
+  for (const s of shown) { const [top, sub = ''] = s.folder.split(' › '); ((tree[top] ||= {})[sub] ||= []).push(s); }
+  const list = group => `<div class="grid">${group.sort((a, b) => a.title.localeCompare(b.title)).map(s => `<article class="site">
+    <img src="https://icons.duckduckgo.com/ip3/${esc(new URL(s.url).hostname)}.ico" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+    <div><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a><p>${esc(s.note)}</p></div>
+    <button type="button" data-site="${s.id}" aria-label="Edit ${esc(s.title)}">✎</button></article>`).join('')}</div>`;
+  box.innerHTML = `<div class="siteBar"><input id="siteSearch" type="search" placeholder="Search websites…" aria-label="Search websites" value="${esc(keep)}">
+    <button type="button" id="siteAdd" class="primary">＋ Add website</button>
+    ${L.STARTER_SITES.some(s => !all.some(x => L.siteKey(x.url) === L.siteKey(s.url))) ? '<button type="button" id="siteStarter" title="Reading, watching, listening and game sites with a short explanation">Add suggested websites</button>' : ''}</div>
+    ${Object.keys(tree).sort().map(top => `<h2>${esc(top)}</h2>${Object.keys(tree[top]).sort().map(sub => `${sub ? `<h3>${esc(sub)}</h3>` : ''}${list(tree[top][sub])}`).join('')}`).join('')
+      || `<p class="muted">${all.length ? 'No website matches.' : 'No websites yet. Add your own, or start with the suggested ones.'}</p>`}`;
+}
+
+$('#sites').addEventListener('input', e => {
+  if (e.target.id !== 'siteSearch') return;
+  renderSites();
+  const input = $('#siteSearch'); input.focus(); input.setSelectionRange(input.value.length, input.value.length);
+});
+$('#sites').addEventListener('click', e => {
+  const edit = e.target.closest('[data-site]');
+  if (edit) return openSite(byId(edit.dataset.site));
+  if (e.target.id === 'siteAdd') return openSite(null);
+  if (e.target.id === 'siteStarter') {
+    const have = new Set(sites().map(s => L.siteKey(s.url)));
+    save(...L.STARTER_SITES.filter(s => !have.has(L.siteKey(s.url))).map(s => L.makeSite(s)));
+    renderSites();
+  }
+});
+
+function openSite(s) {
+  const folders = [...new Set([...sites().map(x => x.folder), ...L.STARTER_SITES.map(x => x.folder)])].sort();
+  showDialog(`<h2>${s ? 'Edit website' : 'Add a website'}</h2>
+    <label>Address <input name="url" value="${esc(s?.url || '')}" placeholder="https://…" required></label>
+    <label>Name <input name="title" value="${esc(s?.title || '')}" placeholder="Filled in from the address if empty"></label>
+    <label>What is it for? <textarea name="note" rows="2">${esc(s?.note || '')}</textarea></label>
+    <label>Folder <small>(use › for a subfolder, like Reading › Manga)</small>
+      <input name="folder" list="siteFolders" value="${esc(s?.folder || '')}" placeholder="Other"><datalist id="siteFolders">${folders.map(f => `<option value="${esc(f)}">`).join('')}</datalist></label>
+    <div class="actions"><button type="button" id="siteSave" class="primary">Save</button> <button type="button" data-close>Cancel</button>
+      ${s ? '<button type="button" id="siteDel" class="danger">Delete</button>' : ''}</div>`);
+  dlgForm.onclick = e => {
+    if (e.target.closest('[data-close]')) return dlg.close();
+    if (e.target.id === 'siteDel' && confirm(`Delete “${s.title}”?`)) { s.deleted = true; save(s); dlg.close(); return renderSites(); }
+    if (e.target.id !== 'siteSave') return;
+    if (!dlgForm.reportValidity()) return;
+    const f = Object.fromEntries(new FormData(dlgForm));
+    const typed = f.url.trim(), url = /^https?:\/\//i.test(typed) ? typed : 'https://' + typed;
+    let host;
+    try { host = new URL(url).hostname; } catch { return toast('That address does not look right.'); }
+    if (!host.includes('.')) return toast('That address does not look right.');
+    if (sites().some(x => x !== s && L.siteKey(x.url) === L.siteKey(url))) return toast('That website is already in your list.');
+    const values = { url, title: f.title.trim() || host.replace(/^www\./, ''), note: f.note.trim(), folder: f.folder.trim() || 'Other' };
+    if (s) { Object.assign(s, values); save(s); } else save(L.makeSite(values));
+    dlg.close(); renderSites();
+  };
 }
 
 // ---------------- settings, import, export ----------------
@@ -673,3 +824,8 @@ render();
 setSync(settings.sync ? '' : 'Sync off');
 sync();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+
+// Shared from another app (on phones): the system opens this page with the post in the address.
+const shared = new URLSearchParams(location.search);
+const sharedText = ['title', 'text', 'url'].map(k => shared.get(k)).filter(Boolean).join('\n');
+if (sharedText) { history.replaceState(null, '', location.pathname); openPost(sharedText); }

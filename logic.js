@@ -232,3 +232,57 @@ export function stats(items) {
     topGenres: Object.entries(genres).sort((a, b) => b[1] - a[1]).slice(0, 10),
   };
 }
+
+// ---------- shared posts ----------
+const NOT_A_TITLE = /^(top|best|my |these|here|follow|part \d|comment|link|watch|read|must|recommend|if you|you |i |we |this|that|what|why|how to|check|save|like|share|omg|pov)\b/i;
+
+// Likely titles in a caption or pasted list: quoted names, list lines, and short parts between commas.
+export function extractTitles(text) {
+  const clean = String(text || '').replace(/https?:\/\/\S+/g, ' ').replace(/#[\p{L}\p{N}_]+/gu, ' ').replace(/@[\w.]+/g, ' ');
+  const out = [...clean.matchAll(/["“«„]([^"“”«»„]{2,80})["”»“]/g)].map(m => m[1]);
+  for (const line of clean.split(/[\n;•|]+/)) {
+    if (line.trim().endsWith(':')) continue; // a heading like "Books you need:"
+    const parts = line.split(',').length > 2 || /^\s*\d+[.)]/.test(line) ? line.split(',') : [line];
+    for (const part of parts) {
+      const t = part.replace(/^[\s\d.)\-–—*:]+/, '').replace(/[\p{Extended_Pictographic}️‍]/gu, '').replace(/["“”«»„]/g, '').replace(/\s+by\s+.*$/i, '').replace(/[\s.!?:]+$/, '').trim();
+      if (t.length >= 2 && t.split(/\s+/).length <= 10 && /\p{L}/u.test(t) && !NOT_A_TITLE.test(t)) out.push(t);
+    }
+  }
+  const seen = new Set();
+  return out.map(t => t.trim()).filter(t => { const n = normalize(t); if (!n || seen.has(n)) return false; seen.add(n); return true; }).slice(0, 20);
+}
+
+// ---------- useful websites ----------
+export const makeSite = (s, now = Date.now()) => ({ id: newId(), type: 'Website', title: s.title, url: s.url, note: s.note || '', folder: s.folder || 'Other', createdAt: now, updatedAt: now });
+export const siteKey = url => { try { const u = new URL(url); return u.hostname.replace(/^www\./, '') + u.pathname.replace(/\/$/, ''); } catch { return url; } };
+
+const site = (folder, title, url, note) => ({ folder, title, url, note });
+export const STARTER_SITES = [
+  site('Reading › Books', 'Goodreads', 'https://www.goodreads.com', 'Find books, read reviews and see what others liked.'),
+  site('Reading › Books', 'The StoryGraph', 'https://www.thestorygraph.com', 'Book tracking with recommendations based on mood and pace.'),
+  site('Reading › Books', 'Project Gutenberg', 'https://www.gutenberg.org', 'Free classic books whose copyright has expired.'),
+  site('Reading › Books', 'Open Library', 'https://openlibrary.org', 'Catalogue of books, many of them free to borrow online.'),
+  site('Reading › Web novels', 'NovelUpdates', 'https://www.novelupdates.com', 'Directory of translated Asian novels, showing where each is published.'),
+  site('Reading › Web novels', 'Royal Road', 'https://www.royalroad.com', 'Free web novels in English: LitRPG, progression fantasy and more.'),
+  site('Reading › Web novels', 'Scribble Hub', 'https://www.scribblehub.com', 'Free original web novels, many in Asian-novel style.'),
+  site('Reading › Web novels', 'Wuxiaworld', 'https://www.wuxiaworld.com', 'Licensed translations of Chinese and Korean novels.'),
+  site('Reading › Fanfiction', 'Archive of Our Own (AO3)', 'https://archiveofourown.org', 'Large fanfiction archive with very detailed tags.'),
+  site('Reading › Fanfiction', 'FanFiction.net', 'https://www.fanfiction.net', 'One of the oldest fanfiction sites, sorted by fandom.'),
+  site('Reading › Fanfiction', 'Wattpad', 'https://www.wattpad.com', 'Free stories and fanfiction, works well on a phone.'),
+  site('Reading › Manga & manhwa', 'MangaDex', 'https://mangadex.org', 'Free manga reader run by fans, in many languages.'),
+  site('Reading › Manga & manhwa', 'MANGA Plus', 'https://mangaplus.shueisha.co.jp', 'Official free Shueisha manga, including new chapters of popular series.'),
+  site('Reading › Manga & manhwa', 'WEBTOON', 'https://www.webtoons.com', 'Official vertical-scroll comics, many free.'),
+  site('Reading › Manga & manhwa', 'Tapas', 'https://tapas.io', 'Official comics and novels, some free and some paid per episode.'),
+  site('Reading › Manga & manhwa', 'MangaUpdates', 'https://www.mangaupdates.com', 'Database of manga, manhwa and manhua: other titles, status and related works.'),
+  site('Listening › Audiobooks', 'Audible', 'https://www.audible.com', 'Large paid audiobook shop and subscription.'),
+  site('Listening › Audiobooks', 'LibriVox', 'https://librivox.org', 'Free audiobooks of classic books, read by volunteers.'),
+  site('Watching › Movies & series', 'JustWatch', 'https://www.justwatch.com', 'Shows which streaming service has a movie or series in your country.'),
+  site('Watching › Movies & series', 'Letterboxd', 'https://letterboxd.com', 'Log and rate movies, and browse other people\'s lists.'),
+  site('Watching › Movies & series', 'Trakt', 'https://trakt.tv', 'Track movies and series, with upcoming episodes.'),
+  site('Watching › Anime', 'Crunchyroll', 'https://www.crunchyroll.com', 'Official anime streaming, including new seasons.'),
+  site('Watching › Anime', 'AniList', 'https://anilist.co', 'Anime and manga database with tracking and recommendations.'),
+  site('Watching › Anime', 'MyAnimeList', 'https://myanimelist.net', 'The best-known anime and manga database, with rankings and reviews.'),
+  site('Playing › Web games', 'itch.io', 'https://itch.io', 'Indie games, many free and playable in the browser.'),
+  site('Playing › Web games', 'CrazyGames', 'https://www.crazygames.com', 'Free browser games with nothing to install.'),
+  site('Playing › Web games', 'Poki', 'https://poki.com', 'Free browser games, mostly quick and casual.'),
+];

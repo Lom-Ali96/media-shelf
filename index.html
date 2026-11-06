@@ -22,6 +22,8 @@
     </form>
     <nav class="tools">
       <button data-view="library" class="on">Library</button>
+      <button id="pasteBtn" title="Paste a post, link or list of recommendations">📋 Paste post</button>
+      <button data-view="sites">Websites</button>
       <button data-view="upcoming">Upcoming</button>
       <button data-view="stats">Stats</button>
       <button data-view="settings">Settings</button>
@@ -43,10 +45,11 @@
         <option value="grade">Best grade</option>
         <option value="finished">Recently finished</option>
       </select>
-      <button id="randomBtn" title="Pick something from your Planning list">🎲 What next?</button>
+      <button id="randomBtn" title="Pick something at random, from the sections you choose">🎲 What next?</button>
     </div>
     <div id="list" class="grid"></div>
   </section>
+  <section id="sites" hidden></section>
   <section id="upcoming" hidden></section>
   <section id="stats" hidden></section>
   <section id="settings" hidden>

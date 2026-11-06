@@ -31,6 +31,9 @@ My books, novels, light novels, web novels, manga, manhwa, manhua, anime, series
 
 - **Add:** type a title in any language, or paste a link (AO3, FanFiction.net, NovelUpdates, Webtoon, MangaDex, TikTok, YouTube, …). Pick the right match and it goes into the right section, with English, original and romanized titles, cover, and links.
 - **Suggestions while typing:** after a moment, a list appears under the add box. It shows matches already on your shelf, titles you can add with one click, and **Did you mean …?** when a title looks misspelled. You can use the arrow keys and Enter, or click. Enter without choosing a suggestion searches all sources.
+- **Paste post:** paste a link together with a caption or list of titles. The app finds the titles, you confirm the versions, and they are added with the post as their source. TikTok does not share captions with apps, so copy those in yourself. On Android, an installed app can also appear in the Share menu.
+- **What next?:** tick the sections to pick from, and the app picks at random from your Planning list.
+- **Websites:** your useful sites with a short explanation, in folders and subfolders (use › as in Reading › Manga).
 - **Other versions:** open any title to see its manga / anime / novel versions. ＋ adds one, ✔ means you already have it.
 - **+1** moves your chapter or episode on. At the last one it is marked finished with today's date.
 - **Old Excel list:** Settings → Import Excel / CSV. Imported titles are tagged "imported". Open one and press **🔎 Find titles, cover and links online** to fill in the details.

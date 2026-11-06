@@ -79,4 +79,19 @@ assert.equal(s.total, 1); assert.equal(s.byType.Manhwa.gradeSum, 8); assert.equa
 assert.equal(L.STATUSES.finished, 'Finished');
 assert.equal(L.RELEASE.FINISHED, 'Complete'); // release state must not read like my own "Finished"
 
+// titles in shared posts
+assert.deepEqual(L.extractTitles('1. Dune\n2) The Way of Kings by Brandon Sanderson\n3. Fourth Wing 🔥'), ['Dune', 'The Way of Kings', 'Fourth Wing']);
+assert.deepEqual(L.extractTitles('You HAVE to read "Red Rising" #booktok #fyp https://x.co/a @someone'), ['Red Rising']);
+assert.deepEqual(L.extractTitles('Solo Leveling, Omniscient Reader, Tower of God'), ['Solo Leveling', 'Omniscient Reader', 'Tower of God']);
+assert.deepEqual(L.extractTitles('Top 5 books you must read\nDune\nDUNE'), ['Dune']);
+assert.deepEqual(L.extractTitles('Books you need:\n1. Dune'), ['Dune']);
+assert.deepEqual(L.extractTitles(''), []);
+assert.equal(L.extractTitles(Array.from({ length: 30 }, (_, i) => 'Book ' + i).join('\n')).length, 20);
+
+// websites
+assert.equal(L.siteKey('https://www.royalroad.com/'), 'royalroad.com');
+assert.equal(L.siteKey('not a link'), 'not a link');
+assert.equal(L.makeSite({ title: 'x', url: 'https://x.y' }).folder, 'Other');
+assert.ok(L.STARTER_SITES.every(s => s.url.startsWith('https://') && s.note && s.folder.includes(' › ')));
+
 console.log('all tests passed');
