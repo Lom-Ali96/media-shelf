@@ -8,6 +8,7 @@ const csv = s => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
 
 let items = L.migrate(JSON.parse(localStorage.getItem('ms-items') || '[]'));
 const settings = JSON.parse(localStorage.getItem('ms-settings') || '{}');
+if (settings.randomTypes) settings.randomTypes = settings.randomTypes.map(t => ['Light novel', 'Web novel', 'Novel', 'Audiobook'].includes(t) ? L.BOOKS : t);
 const ui = { type: '' };
 const live = () => items.filter(i => !i.deleted && i.type !== 'Website'); // websites share the list so they sync and back up too
 const sites = () => items.filter(i => !i.deleted && i.type === 'Website');
@@ -34,8 +35,8 @@ function toast(msg) {
 
 // ---------------- library screen ----------------
 function filtered() {
-  const q = L.normalize($('#search').value), st = $('#statusFilter').value, tag = $('#tagFilter').value, fav = $('#favFilter').checked;
-  const list = live().filter(i => (!ui.type || i.type === ui.type) && (!st || i.status === st) && (!tag || i.tags.includes(tag)) && (!fav || i.fav) &&
+  const q = L.normalize($('#search').value), st = $('#statusFilter').value, tag = $('#tagFilter').value, fav = $('#favFilter').checked, audio = $('#audioFilter').checked;
+  const list = live().filter(i => (!ui.type || i.type === ui.type) && (!st || i.status === st) && (!tag || i.tags.includes(tag)) && (!fav || i.fav) && (!audio || i.audiobook) &&
     (!q || L.normalize([...L.allTitles(i), i.author, i.notes, i.tags.join(' '), i.source].join(' ')).includes(q)));
   const sorts = {
     updated: (a, b) => b.updatedAt - a.updatedAt,
@@ -55,6 +56,7 @@ function card(it) {
       <h3>${esc(it.title)}</h3>
       ${others.length ? `<p class="alt">${esc([...new Set(others)].join(' · '))}</p>` : ''}
       <p class="meta"><span class="badge">${esc(it.type)}</span>
+        ${it.audiobook ? '<span title="Also exists as an audiobook" aria-label="Also exists as an audiobook">🎧</span>' : ''}
         <span class="st-${it.status}">${L.STATUSES[it.status]}</span>
         ${it.grade ? `<span>★ ${it.grade}</span>` : ''}
         ${it.releaseStatus ? `<span class="muted">${esc(it.releaseStatus)}</span>` : ''}</p>
@@ -81,7 +83,7 @@ function render() {
 }
 
 $('#statusFilter').innerHTML += Object.entries(L.STATUSES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
-['#search', '#statusFilter', '#tagFilter', '#favFilter', '#sort'].forEach(s => $(s).addEventListener('input', render));
+['#search', '#statusFilter', '#tagFilter', '#favFilter', '#audioFilter', '#sort'].forEach(s => $(s).addEventListener('input', render));
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-type]'); if (b) { ui.type = b.dataset.type; render(); } });
 
 function bump(it) {
@@ -265,17 +267,24 @@ const resultsHtml = results => `<div class="results">${results.map((r, i) => `
     ${thumb(r.cover)}
     <span><b>${esc(r.title)}</b>
     <small>${esc([r.titles?.romaji, r.titles?.native].filter(t => t && t !== r.title).join(' · '))}</small>
-    <small><span class="badge">${esc(r.type)}</span> ${esc(r.year || '')} ${esc(r.author || r.hint || '')} · ${esc(r.src)}</small></span>
+    <small><span class="badge">${esc(r.type)}</span> ${r.audiobook ? '🎧 ' : ''}${esc(r.year || '')} ${esc(r.author || r.hint || '')} · ${esc(r.src)}</small></span>
   </button>`).join('')}</div>`;
 
 function addCandidate(cand, status) {
   const dup = L.findDuplicate(items, cand);
+  if (dup && cand.audiobook) { // the audiobook of a book I already have: mark that book instead of adding a second entry
+    dup.audiobook = true;
+    dup.links = [...dup.links, ...(cand.links || []).filter(l => !dup.links.some(m => m.url === l.url))];
+    save(dup); $('#addInput').value = ''; toast(`🎧 Marked “${dup.title}” as an audiobook`);
+    return openEdit(dup);
+  }
   if (dup && !confirm(`“${dup.title}” is already in your ${dup.type} section. Add it again anyway?`)) return openEdit(dup);
   const it = L.makeItem({ ...cand, status, finished: status === 'finished' ? today() : '' });
   save(it);
   $('#addInput').value = '';
   toast(`Added to ${it.type}`);
   if (status === 'finished') openEdit(it); else dlg.close();
+  if (it.type === L.BOOKS && !it.audiobook) checkAudiobook(it).then(yes => { if (yes) { save(it); toast(`🎧 “${it.title}” also exists as an audiobook`); } }).catch(() => {}); // only a bonus: fine if offline
   return it;
 }
 
@@ -330,6 +339,7 @@ function openEdit(it) {
       <label>Tags & lists <small>(comma-separated)</small> <input name="tags" value="${esc(it.tags.join(', '))}" placeholder="favourites, uni, comfort read"></label>
       <label>Heard about it from <input name="source" value="${esc(it.source)}" placeholder="friend, TikTok, …"></label>
       <label class="check"><input name="fav" type="checkbox" ${it.fav ? 'checked' : ''}> ❤ Favourite</label>
+      <label class="check"><input name="audiobook" type="checkbox" ${it.audiobook ? 'checked' : ''}> 🎧 Exists as an audiobook</label>
     </div>
     <label>Links <small>(one per line: name | address)</small>
       <textarea name="links" rows="3" placeholder="AO3 | https://archiveofourown.org/works/…">${esc(it.links.map(l => `${l.label} | ${l.url}`).join('\n'))}</textarea></label>
@@ -366,7 +376,7 @@ function openEdit(it) {
       Object.assign(it, {
         title: f.title.trim(), author: f.author.trim(), type: f.type, status: f.status,
         grade: f.grade ? +f.grade : null, finished: f.finished || (f.status === 'finished' && it.status !== 'finished' ? today() : ''),
-        rereads: +f.rereads || 0, tags: csv(f.tags), source: f.source.trim(), fav: !!f.fav,
+        rereads: +f.rereads || 0, tags: csv(f.tags), source: f.source.trim(), fav: !!f.fav, audiobook: !!f.audiobook,
         notes: f.notes, spoilers: f.spoilers, quotes: f.quotes,
         titles: { english: f.english.trim(), romaji: f.romaji.trim(), native: f.native.trim(), alt: csv(f.alt) },
         progress: { current: +f.current || 0, total: +f.total || null, unit: f.unit.trim() },
@@ -433,7 +443,7 @@ function openPost(text) {
     const caption = url ? await postCaption(url) : '';
     note = caption || typed.replace(url, '').trim();
     const words = (typed + '\n' + caption).replace(/https?:\/\/\S+/g, ' ');
-    const titles = L.extractTitles(words), prefer = L.typeFromText(words) || (/\sby\s/i.test(words) ? 'Novel' : ''); // "booktok" or "by <author>": the book version first
+    const titles = L.extractTitles(words), prefer = L.typeFromText(words) || (/\sby\s/i.test(words) ? L.BOOKS : ''); // "booktok" or "by <author>": the book version first
     rows = [];
     for (const [n, title] of titles.entries()) {
       if (!$('#postResult')) return; // dialog was closed
@@ -524,16 +534,49 @@ async function searchTvmaze(q) {
 async function searchOpenLibrary(q) {
   const res = await getJson(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=5&fields=key,title,author_name,first_publish_year,cover_i,subject`);
   return res.docs.map(d => ({
-    src: 'Open Library', type: 'Novel', title: d.title, author: d.author_name?.[0], year: d.first_publish_year,
+    src: 'Open Library', type: L.BOOKS, title: d.title, author: d.author_name?.[0], year: d.first_publish_year,
     cover: d.cover_i && `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg`, genres: (d.subject || []).slice(0, 4),
     ext: { openlibrary: d.key }, links: [{ label: 'Open Library', url: 'https://openlibrary.org' + d.key }],
   }));
 }
 
+const cleanAudioTitle = t => (t || '').replace(/\s*[([][^)\]]*[)\]]/g, '').trim(); // drop "(Unabridged)", "(Empyrean)" and the like
+
+// Marks a book when Apple Books sells an audiobook of it: the title must match, and the author too when both are known.
+async function checkAudiobook(it) {
+  it.audioChecked = true;
+  const res = await getJson(`https://itunes.apple.com/search?term=${encodeURIComponent(it.title)}&media=audiobook&limit=5`);
+  const lastName = s => (s || '').trim().split(/\s+/).pop().toLowerCase();
+  const hit = res.results.find(r => L.similarity(cleanAudioTitle(r.collectionName), it.title) >= 0.85 && (!it.author || (r.artistName || '').toLowerCase().includes(lastName(it.author))));
+  if (!hit) return false;
+  it.audiobook = true;
+  if (hit.collectionViewUrl && !it.links.some(l => l.url === hit.collectionViewUrl)) it.links.push({ label: 'Apple Books (audiobook)', url: hit.collectionViewUrl });
+  return true;
+}
+
+async function checkAllAudiobooks() {
+  const btn = $('#audioCheckBtn'), todo = live().filter(i => i.type === L.BOOKS && !i.audiobook && !i.audioChecked);
+  if (!todo.length) return toast('All your books have been checked.');
+  btn.disabled = true;
+  let found = 0, done = 0;
+  try {
+    for (const it of todo) {
+      btn.textContent = `Checking ${++done} of ${todo.length}… (${found} found, you can keep using the app)`;
+      if (await checkAudiobook(it)) found++;
+      if (done % 10 === 0) save(...todo.slice(done - 10, done));
+      await new Promise(r => setTimeout(r, 3200)); // shortcut: Apple allows about 20 searches a minute, so big lists take a while
+    }
+    toast(`Audiobook check finished: ${found} found.`);
+  } catch (e) { toast('Audiobook check paused: ' + e.message + '. Press the button later to continue.'); }
+  const rest = done % 10 || 10;
+  save(...todo.slice(Math.max(0, done - rest), done));
+  btn.disabled = false; btn.textContent = '🎧 Check which books have an audiobook';
+}
+
 async function searchAudiobooks(q) {
   const res = await getJson(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=audiobook&limit=4`);
   return res.results.map(r => ({
-    src: 'Apple', type: 'Audiobook', title: r.collectionName, author: r.artistName, year: r.releaseDate?.slice(0, 4),
+    src: 'Apple', type: L.BOOKS, audiobook: true, title: cleanAudioTitle(r.collectionName), author: r.artistName, year: r.releaseDate?.slice(0, 4),
     cover: r.artworkUrl100?.replace('100x100', '300x300'), links: [{ label: 'Apple Books', url: r.collectionViewUrl }],
   }));
 }
@@ -694,6 +737,7 @@ $('#syncForm').addEventListener('submit', e => {
 $('#unsyncBtn').onclick = () => { delete settings.sync; saveSettings(); $('#syncForm').reset(); setSync('Sync off'); };
 $('#country').onchange = e => { settings.country = e.target.value.trim().toLowerCase(); saveSettings(); };
 $('#refreshBtn').onclick = refreshReleases;
+$('#audioCheckBtn').onclick = checkAllAudiobooks;
 
 function loadXlsx() {
   if (window.XLSX) return Promise.resolve(window.XLSX);
@@ -735,7 +779,7 @@ $('#exportXlsx').onclick = async () => {
       const rows = live().filter(i => i.type === type).map(i => ({
         Title: i.title, English: i.titles.english, Romanized: i.titles.romaji, Original: i.titles.native, Author: i.author,
         Status: L.STATUSES[i.status], Grade: i.grade ?? '', Finished: i.finished,
-        Progress: `${i.progress.current || 0}/${i.progress.total || '?'} ${i.progress.unit}`, Favourite: i.fav ? '❤' : '',
+        Progress: `${i.progress.current || 0}/${i.progress.total || '?'} ${i.progress.unit}`, Favourite: i.fav ? '❤' : '', Audiobook: i.audiobook ? '🎧' : '',
         Tags: i.tags.join(', '), 'Heard about it from': i.source, Links: i.links.map(l => l.url).join(' '), Notes: i.notes,
       }));
       if (rows.length) X.utils.book_append_sheet(wb, X.utils.json_to_sheet(rows), type);
@@ -822,6 +866,7 @@ $('#themeBtn').onclick = () => {
   settings.theme = dark ? 'light' : 'dark'; saveSettings(); applyTheme();
 };
 applyTheme();
+persist(); // keep any section changes from migrate
 render();
 setSync(settings.sync ? '' : 'Sync off');
 sync();

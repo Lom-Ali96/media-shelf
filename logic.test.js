@@ -5,15 +5,15 @@ import * as L from './logic.js';
 // sorting AniList results into sections
 assert.equal(L.anilistType({ type: 'MANGA', format: 'MANGA', countryOfOrigin: 'KR' }), 'Manhwa');
 assert.equal(L.anilistType({ type: 'MANGA', format: 'MANGA', countryOfOrigin: 'CN' }), 'Manhua');
-assert.equal(L.anilistType({ type: 'MANGA', format: 'NOVEL', countryOfOrigin: 'JP' }), 'Light novel');
-assert.equal(L.anilistType({ type: 'MANGA', format: 'NOVEL', countryOfOrigin: 'KR' }), 'Web novel');
+assert.equal(L.anilistType({ type: 'MANGA', format: 'NOVEL', countryOfOrigin: 'JP' }), L.BOOKS);
+assert.equal(L.anilistType({ type: 'MANGA', format: 'NOVEL', countryOfOrigin: 'KR' }), L.BOOKS);
 assert.equal(L.anilistType({ type: 'ANIME', format: 'MOVIE', countryOfOrigin: 'JP' }), 'Anime & Series');
 
 // links
 assert.deepEqual(L.parseLink('https://www.fanfiction.net/s/1234567/1/Harry-Potter-and-the-Something'),
   { site: 'FanFiction.net', type: 'Fanfic', title: 'Harry Potter And The Something' });
 assert.deepEqual(L.parseLink('https://www.novelupdates.com/series/the-beginning-after-the-end/'),
-  { site: 'NovelUpdates', type: 'Web novel', title: 'The Beginning After The End' });
+  { site: 'NovelUpdates', type: L.BOOKS, title: 'The Beginning After The End' });
 assert.deepEqual(L.parseLink('https://archiveofourown.org/works/123456/chapters/999'), { site: 'AO3', type: 'Fanfic', title: '' });
 assert.equal(L.parseLink('https://www.webtoons.com/en/action/omniscient-reader/list?title_no=2154').title, 'Omniscient Reader');
 assert.equal(L.parseLink('https://www.tiktok.com/@someone/video/7123456789').type, 'TikTok');
@@ -51,7 +51,7 @@ assert.equal(L.typeFromText('TV show'), 'Anime & Series');
 
 // search links follow the section
 assert.ok(L.findLinks({ type: 'Fanfic', title: 'A b' }).some(l => l.url.startsWith('https://archiveofourown.org/') && l.url.includes('A%20b')));
-assert.ok(L.findLinks({ type: 'Web novel', title: 'x' }).some(l => l.label === 'NovelUpdates'));
+assert.ok(L.findLinks({ type: L.BOOKS, title: 'x' }).some(l => l.label === 'NovelUpdates'));
 assert.ok(L.findLinks({ type: 'Other', title: 'x' }).length > 0);
 
 // spreadsheet import
@@ -70,8 +70,8 @@ assert.equal(L.parseDate('2024/1/9'), '2024-01-09');
 assert.equal(L.statusFromText('to-read'), 'planning');
 assert.equal(L.statusFromText('currently-reading'), 'progress');
 assert.equal(L.statusFromText('read'), 'finished');
-assert.equal(L.typeFromText('Light Novel'), 'Light novel');
-assert.equal(L.typeFromText('Bücher'), 'Novel');
+assert.equal(L.typeFromText('Light Novel'), L.BOOKS);
+assert.equal(L.typeFromText('Bücher'), L.BOOKS);
 
 // statistics
 const s = L.stats([{ ...a, status: 'finished', grade: 8, finished: '2025-02-01', genres: ['Action'] }, { ...a, id: 'x', deleted: true }]);
@@ -87,6 +87,31 @@ assert.deepEqual(L.extractTitles('Top 5 books you must read\nDune\nDUNE'), ['Dun
 assert.deepEqual(L.extractTitles('Books you need:\n1. Dune'), ['Dune']);
 assert.deepEqual(L.extractTitles(''), []);
 assert.equal(L.extractTitles(Array.from({ length: 30 }, (_, i) => 'Book ' + i).join('\n')).length, 20);
+
+// books and audiobooks in one section
+const oldList = [
+  { id: 'n', type: 'Novel', title: 'Dune', titles: {}, tags: ['checked'], links: [{ label: 'A', url: 'https://a.b' }], grade: 9, status: 'finished', notes: 'great', updatedAt: 1 },
+  { id: 'a', type: 'Audiobook', title: 'dune!', titles: {}, tags: ['not found'], links: [{ label: 'C', url: 'https://c.d' }], status: 'planning', updatedAt: 1 },
+  { id: 'l', type: 'Light novel', title: 'Overlord', titles: {}, tags: [], links: [], updatedAt: 1 },
+  { id: 'w', type: 'Web novel', title: 'Shadow Slave', titles: {}, tags: [], links: [], updatedAt: 1 },
+  { id: 'h', type: 'Audiobook', title: 'HP monster', titles: {}, tags: [], links: [], updatedAt: 1 },
+  { id: 'm', type: 'Manga', title: 'Dune', titles: {}, tags: [], links: [], updatedAt: 1 },
+];
+const newList = L.migrate(oldList), keptBook = id => newList.find(i => i.id === id);
+assert.ok(newList.filter(i => i.id !== 'm').every(i => i.type === L.BOOKS));
+assert.equal(keptBook('a').deleted, true); assert.equal(keptBook('n').audiobook, true);
+assert.equal(keptBook('n').grade, 9); assert.equal(keptBook('n').notes, 'great'); assert.equal(keptBook('n').links.length, 2);
+assert.ok(keptBook('n').updatedAt > 1);
+assert.equal(keptBook('h').audiobook, true); assert.ok(!keptBook('h').deleted);
+assert.ok(!keptBook('m').deleted); // the manga of the same name is another version, not a duplicate
+assert.ok(!keptBook('l').audiobook);
+const stable = JSON.stringify(newList); L.migrate(newList); assert.equal(JSON.stringify(newList), stable); // running it again changes nothing
+const twoAdded = [{ id: '1', type: L.BOOKS, title: 'Same', titles: {}, updatedAt: 1 }, { id: '2', type: L.BOOKS, title: 'Same', titles: {}, updatedAt: 1 }];
+assert.ok(!L.migrate(twoAdded)[1].deleted); // books I chose to add twice later stay
+assert.equal(L.makeItem({ title: 'x', type: L.BOOKS, links: [{ url: 'https://www.audible.com/pd/x' }] }).audiobook, true);
+assert.equal(L.makeItem({ title: 'x', type: L.BOOKS }).audiobook, false);
+assert.equal(L.rowToCandidate(['Mistborn'], {}, 'Hörbücher').audiobook, true);
+assert.equal(L.rowToCandidate(['Mistborn'], {}, 'Hörbücher').type, L.BOOKS);
 
 // websites
 assert.equal(L.siteKey('https://www.royalroad.com/'), 'royalroad.com');

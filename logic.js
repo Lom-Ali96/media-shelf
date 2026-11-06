@@ -1,11 +1,11 @@
 // Pure helpers (no screen, no network) so they can be tested with `node logic.test.js`.
 
-export const TYPES = ['Anime & Series', 'Manga', 'Manhwa', 'Manhua', 'Light novel', 'Web novel', 'Novel', 'Fanfic',
-  'Movie', 'Audiobook', 'TikTok', 'Video', 'Other'];
+export const BOOKS = 'Books & Novels';
+export const TYPES = ['Anime & Series', 'Manga', 'Manhwa', 'Manhua', BOOKS, 'Fanfic', 'Movie', 'TikTok', 'Video', 'Other'];
 
 export const STATUSES = { planning: 'Planning', progress: 'In progress', finished: 'Finished', paused: 'Paused', dropped: 'Dropped' };
 
-const UNIT_FOR = { 'Anime & Series': 'ep', Movie: 'min', Audiobook: 'h', Novel: 'page', Video: 'min', TikTok: 'part', Other: '' };
+const UNIT_FOR = { 'Anime & Series': 'ep', Movie: 'min', Video: 'min', TikTok: 'part', Other: '' };
 export const unitFor = type => UNIT_FOR[type] ?? 'ch';
 
 export const RELEASE = { RELEASING: 'Ongoing', FINISHED: 'Complete', HIATUS: 'On hiatus', NOT_YET_RELEASED: 'Not out yet',
@@ -14,7 +14,7 @@ export const RELEASE = { RELEASING: 'Ongoing', FINISHED: 'Complete', HIATUS: 'On
 // AniList "format" + country -> our section
 export function anilistType(m) {
   const c = m.countryOfOrigin;
-  if (m.format === 'NOVEL') return c === 'JP' ? 'Light novel' : 'Web novel';
+  if (m.format === 'NOVEL') return BOOKS;
   if (m.type === 'MANGA') return c === 'KR' ? 'Manhwa' : (c === 'CN' || c === 'TW') ? 'Manhua' : 'Manga';
   return 'Anime & Series';
 }
@@ -22,13 +22,13 @@ export function anilistType(m) {
 const SITES = [
   [/archiveofourown\.org/, 'AO3', 'Fanfic'],
   [/fanfiction\.net/, 'FanFiction.net', 'Fanfic'],
-  [/wattpad\.com/, 'Wattpad', 'Web novel'],
-  [/novelupdates\.com/, 'NovelUpdates', 'Web novel'],
-  [/royalroad\.com/, 'Royal Road', 'Web novel'],
-  [/webnovel\.com/, 'Webnovel', 'Web novel'],
-  [/wuxiaworld/, 'Wuxiaworld', 'Web novel'],
-  [/scribblehub\.com/, 'Scribble Hub', 'Web novel'],
-  [/j-novel\.club/, 'J-Novel Club', 'Light novel'],
+  [/wattpad\.com/, 'Wattpad', BOOKS],
+  [/novelupdates\.com/, 'NovelUpdates', BOOKS],
+  [/royalroad\.com/, 'Royal Road', BOOKS],
+  [/webnovel\.com/, 'Webnovel', BOOKS],
+  [/wuxiaworld/, 'Wuxiaworld', BOOKS],
+  [/scribblehub\.com/, 'Scribble Hub', BOOKS],
+  [/j-novel\.club/, 'J-Novel Club', BOOKS],
   [/mangadex\.org/, 'MangaDex', 'Manga'],
   [/mangaplus/, 'MANGA Plus', 'Manga'],
   [/webtoons\.com/, 'Webtoon', 'Manhwa'],
@@ -39,9 +39,9 @@ const SITES = [
   [/myanimelist\.net\/manga/, 'MyAnimeList', 'Manga'],
   [/crunchyroll\.com/, 'Crunchyroll', 'Anime & Series'],
   [/imdb\.com/, 'IMDb', 'Movie'],
-  [/goodreads\.com/, 'Goodreads', 'Novel'],
-  [/audible\./, 'Audible', 'Audiobook'],
-  [/storytel\./, 'Storytel', 'Audiobook'],
+  [/goodreads\.com/, 'Goodreads', BOOKS],
+  [/audible\./, 'Audible', BOOKS],
+  [/storytel\./, 'Storytel', BOOKS],
   [/tiktok\.com/, 'TikTok', 'TikTok'],
   [/youtube\.com|youtu\.be/, 'YouTube', 'Video'],
 ];
@@ -100,6 +100,7 @@ export function makeItem(c, now = Date.now()) {
     cover: c.cover || '', genres: c.genres || [], year: c.year || null,
     status: c.status || 'planning', grade: c.grade ?? null, finished: c.finished || '',
     progress: { current: c.current || 0, total: c.total || null, unit: unitFor(type) },
+    audiobook: !!c.audiobook || (c.links || []).some(l => /audible\.|storytel\.|librivox\.|books\.apple\./.test(l.url)),
     rereads: 0, fav: false, tags: c.tags || [], source: c.source || '',
     notes: c.notes || '', spoilers: '', quotes: '',
     links: c.links || [], ext: c.ext || {}, releaseStatus: c.releaseStatus || '', nextRelease: c.nextRelease || null,
@@ -108,17 +109,50 @@ export function makeItem(c, now = Date.now()) {
 }
 
 // Lists saved before Anime and Series became one section.
-export const migrate = list => { for (const i of list) if (i.type === 'Anime' || i.type === 'Series') i.type = 'Anime & Series'; return list; };
+export function migrate(list) {
+  let booksMerged = false;
+  for (const i of list) {
+    if (i.type === 'Anime' || i.type === 'Series') i.type = 'Anime & Series';
+    if (['Light novel', 'Web novel', 'Novel', 'Audiobook'].includes(i.type)) {
+      if (i.type === 'Audiobook') i.audiobook = true;
+      i.type = BOOKS; booksMerged = true;
+    }
+  }
+  if (booksMerged) joinSameBooks(list);
+  return list;
+}
+
+// The old Novel and Audiobook sections could both hold the same book: keep one entry and everything I wrote on either.
+function joinSameBooks(list, now = Date.now()) {
+  const seen = new Map();
+  for (const it of list) {
+    if (it.deleted || it.type !== BOOKS) continue;
+    const keys = [it.ext?.anilist && 'a' + it.ext.anilist, it.title, it.titles?.english, it.titles?.romaji].filter(Boolean).map(k => normalize(String(k))).filter(Boolean);
+    const twin = keys.map(k => seen.get(k)).find(Boolean);
+    if (!twin) { keys.forEach(k => seen.set(k, it)); continue; }
+    twin.audiobook ||= it.audiobook;
+    twin.grade ??= it.grade;
+    twin.finished ||= it.finished;
+    twin.notes ||= it.notes;
+    twin.fav ||= it.fav;
+    if (twin.status === 'planning') twin.status = it.status;
+    if ((it.progress?.current || 0) > (twin.progress?.current || 0)) twin.progress = it.progress;
+    twin.tags = [...new Set([...(twin.tags || []), ...(it.tags || [])])];
+    twin.links = [...(twin.links || []), ...(it.links || []).filter(l => !(twin.links || []).some(m => m.url === l.url))];
+    twin.cover ||= it.cover;
+    it.deleted = true;
+    it.updatedAt = twin.updatedAt = now;
+  }
+}
 
 // Two copies of the list (this device + GitHub): per item, the newest edit wins. Deleted items stay as markers.
 export function mergeItems(a, b) {
-  migrate(b);
   const byId = new Map(a.map(it => [it.id, it]));
   for (const it of b) {
     const mine = byId.get(it.id);
     if (!mine || (it.updatedAt || 0) > (mine.updatedAt || 0)) byId.set(it.id, it);
   }
-  return [...byId.values()];
+  return migrate([...byId.values()]);
 }
 
 // "Find it on" search links, picked by section.
@@ -138,10 +172,7 @@ export function findLinks(it, country = 'us') {
     Manga: [...comic, L('MANGA Plus', 'https://mangaplus.shueisha.co.jp/search_result?keyword=' + q)],
     Manhwa: [...comic, L('Webtoon', `https://www.webtoons.com/en/search?keyword=${q}`), L('Tapas', `https://tapas.io/search?q=${q}`)],
     Manhua: comic,
-    'Light novel': [...novel, L('J-Novel Club', `https://j-novel.club/search?q=${q}`), ...book],
-    'Web novel': [...novel, L('Royal Road', `https://www.royalroad.com/fictions/search?title=${q}`), L('Webnovel', `https://www.webnovel.com/search?keywords=${q}`)],
-    Novel: [...book, ...audio],
-    Audiobook: audio,
+    [BOOKS]: [...book, ...novel, L('Royal Road', `https://www.royalroad.com/fictions/search?title=${q}`), L('Webnovel', `https://www.webnovel.com/search?keywords=${q}`), ...audio],
     Fanfic: fic,
   }[it.type] || [yt, L('Google', `https://www.google.com/search?q=${q}`)];
 }
@@ -168,10 +199,10 @@ export function guessColumns(header) {
 }
 
 const TYPE_WORDS = [
-  [/light ?novel|\bln\b/, 'Light novel'], [/web ?novel|\bwn\b|novelupdates/, 'Web novel'], [/manhwa|webtoon/, 'Manhwa'],
+  [/light ?novel|\bln\b|web ?novel|\bwn\b|novelupdates/, BOOKS], [/manhwa|webtoon/, 'Manhwa'],
   [/manhua/, 'Manhua'], [/manga/, 'Manga'], [/anime|series|serie|show|\btv\b/, 'Anime & Series'], [/fanfic|fan fic|ao3|\bff\b/, 'Fanfic'],
-  [/audio|hörbuch|hoerbuch/, 'Audiobook'], [/movie|film/, 'Movie'],
-  [/tiktok/, 'TikTok'], [/youtube|video/, 'Video'], [/novel|book|b[uü]ch|roman/, 'Novel'],
+  [/audio|h(ö|oe)rb[uü]ch/, BOOKS], [/movie|film/, 'Movie'],
+  [/tiktok/, 'TikTok'], [/youtube|video/, 'Video'], [/novel|book|b[uü]ch|roman/, BOOKS],
 ];
 export const typeFromText = s => (TYPE_WORDS.find(([re]) => re.test(String(s || '').toLowerCase())) || [])[1];
 
@@ -206,6 +237,7 @@ export function rowToCandidate(row, map, sheetName = '') {
   const finished = map.finished === undefined ? '' : parseDate(row[map.finished]);
   return {
     title, author: get('author'), notes: get('notes'),
+    audiobook: /audio|h(ö|oe)rb[uü]ch/i.test(get('type') + ' ' + sheetName),
     type: typeFromText(get('type')) || (fromLink?.type !== 'Other' && fromLink?.type) || typeFromText(sheetName) || 'Other',
     status: statusFromText(get('status')) || (finished ? 'finished' : 'planning'),
     grade: grade > 0 ? Math.min(grade, 10) : null, finished,

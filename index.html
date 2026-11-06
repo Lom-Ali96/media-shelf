@@ -39,6 +39,7 @@
       <select id="statusFilter" aria-label="Status"><option value="">Any status</option></select>
       <select id="tagFilter" aria-label="Tag or list"><option value="">Any tag / list</option></select>
       <label><input type="checkbox" id="favFilter"> ❤ only</label>
+      <label><input type="checkbox" id="audioFilter"> 🎧 only</label>
       <select id="sort" aria-label="Sort">
         <option value="updated">Recently changed</option>
         <option value="title">Title A–Z</option>
@@ -70,6 +71,9 @@
       <label class="btn">Restore backup… <input type="file" id="restoreFile" accept=".json" hidden></label></p>
     <h2>Release info</h2>
     <p><button id="refreshBtn">Update release status and next episodes</button></p>
+    <h2>Audiobooks</h2>
+    <p class="muted">Looks up your books on Apple Books and adds a 🎧 mark to those with an audiobook. Stops safely if you close the app, and continues next time.</p>
+    <p><button id="audioCheckBtn">🎧 Check which books have an audiobook</button></p>
   </section>
 
   <dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>

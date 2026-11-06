@@ -39,6 +39,10 @@ My books, novels, light novels, web novels, manga, manhwa, manhua, anime, series
 - **Old Excel list:** Settings → Import Excel / CSV. Imported titles are tagged "imported". Open one and press **🔎 Find titles, cover and links online** to fill in the details.
 - **Backups:** Settings → Download as Excel, or full backup (.json).
 
+## Books and audiobooks
+
+Light novels, web novels, novels and audiobooks all live in **Books & Novels**. A 🎧 on a card means the book also exists as an audiobook. New books are checked automatically, and Settings can check your whole list.
+
 ## Where the information comes from
 
 AniList (anime, manga, manhwa, manhua, light novels), TVmaze (series, in the "Anime & Series" section), Wikipedia (movies), Open Library (books), Apple Books (audiobooks). Fanfics and web novels can't be looked up automatically, so the app reads the title from the link where it can, and gives you search links for AO3, FanFiction.net, NovelUpdates and more.
