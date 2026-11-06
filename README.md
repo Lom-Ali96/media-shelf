@@ -43,6 +43,10 @@ My books, novels, light novels, web novels, manga, manhwa, manhua, anime, series
 
 Small icons beside a title show the other versions of that story, like 📕 manga or 📺 anime. **🔎 To check** gathers titles the online check wasn't sure about. **Updates** shows new episodes and status changes, checked once a day while the app is open. With sync on, a daily job in the private data repository also finds new chapters on MangaUpdates.
 
+## Hidden folder
+
+Settings → Hidden folder creates a separate list locked with your password. It's encrypted on the device and on GitHub. If you forget the password, it can't be recovered. While open, its tab appears, and it locks when you press 🔒 Lock, close the app, or leave it for 5 minutes.
+
 ## Read aloud
 
 In a book or fanfic, press **🔊 Read aloud**, then paste a chapter or load a file: PDF, EPUB, Word (.docx), HTML and text are read aloud, and MP3, MP4 and other audio files play. Choose a voice, speed and pitch. Chapters stay on that device (they don't sync), so with a device voice you can listen offline. It can't read websites opened from the app; that needs a separate browser add-on.

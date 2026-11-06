@@ -1,7 +1,8 @@
 // Pure helpers (no screen, no network) so they can be tested with `node logic.test.js`.
 
 export const BOOKS = 'Books & Novels';
-export const TYPES = ['Anime & Series', 'Manga', 'Manhwa', 'Manhua', BOOKS, 'Fanfic', 'Movie', 'TikTok', 'Video', 'Other'];
+export const COMICS = 'Manga & Manhwa';
+export const TYPES = ['Anime & Series', COMICS, BOOKS, 'Fanfic', 'Movie', 'TikTok', 'Video', 'Other'];
 
 export const STATUSES = { planning: 'Planning', progress: 'In progress', finished: 'Finished', paused: 'Paused', dropped: 'Dropped' };
 
@@ -13,9 +14,8 @@ export const RELEASE = { RELEASING: 'Ongoing', FINISHED: 'Complete', HIATUS: 'On
 
 // AniList "format" + country -> our section
 export function anilistType(m) {
-  const c = m.countryOfOrigin;
   if (m.format === 'NOVEL') return BOOKS;
-  if (m.type === 'MANGA') return c === 'KR' ? 'Manhwa' : (c === 'CN' || c === 'TW') ? 'Manhua' : 'Manga';
+  if (m.type === 'MANGA') return COMICS;
   return 'Anime & Series';
 }
 
@@ -29,14 +29,14 @@ const SITES = [
   [/wuxiaworld/, 'Wuxiaworld', BOOKS],
   [/scribblehub\.com/, 'Scribble Hub', BOOKS],
   [/j-novel\.club/, 'J-Novel Club', BOOKS],
-  [/mangadex\.org/, 'MangaDex', 'Manga'],
-  [/mangaplus/, 'MANGA Plus', 'Manga'],
-  [/webtoons\.com/, 'Webtoon', 'Manhwa'],
-  [/tapas\.io/, 'Tapas', 'Manhwa'],
+  [/mangadex\.org/, 'MangaDex', COMICS],
+  [/mangaplus/, 'MANGA Plus', COMICS],
+  [/webtoons\.com/, 'Webtoon', COMICS],
+  [/tapas\.io/, 'Tapas', COMICS],
   [/anilist\.co\/anime/, 'AniList', 'Anime & Series'],
-  [/anilist\.co\/manga/, 'AniList', 'Manga'],
+  [/anilist\.co\/manga/, 'AniList', COMICS],
   [/myanimelist\.net\/anime/, 'MyAnimeList', 'Anime & Series'],
-  [/myanimelist\.net\/manga/, 'MyAnimeList', 'Manga'],
+  [/myanimelist\.net\/manga/, 'MyAnimeList', COMICS],
   [/crunchyroll\.com/, 'Crunchyroll', 'Anime & Series'],
   [/imdb\.com/, 'IMDb', 'Movie'],
   [/goodreads\.com/, 'Goodreads', BOOKS],
@@ -109,25 +109,28 @@ export function makeItem(c, now = Date.now()) {
 }
 
 // Lists saved before Anime and Series became one section.
+const OLD_SECTIONS = { Anime: 'Anime & Series', Series: 'Anime & Series', 'Light novel': BOOKS, 'Web novel': BOOKS, Novel: BOOKS, Audiobook: BOOKS, Manga: COMICS, Manhwa: COMICS, Manhua: COMICS };
+export const sectionName = type => OLD_SECTIONS[type] || type;
+
 export function migrate(list) {
-  let booksMerged = false;
+  let joined = false;
   for (const i of list) {
-    if (i.type === 'Anime' || i.type === 'Series') i.type = 'Anime & Series';
-    if (['Light novel', 'Web novel', 'Novel', 'Audiobook'].includes(i.type)) {
-      if (i.type === 'Audiobook') i.audiobook = true;
-      i.type = BOOKS; booksMerged = true;
-    }
+    const now = OLD_SECTIONS[i.type];
+    if (!now) continue;
+    if (i.type === 'Audiobook') i.audiobook = true;
+    if (now !== 'Anime & Series') joined = true;
+    i.type = now;
   }
-  if (booksMerged) joinSameBooks(list);
+  if (joined) joinSameBooks(list);
   return list;
 }
 
-// The old Novel and Audiobook sections could both hold the same book: keep one entry and everything I wrote on either.
+// Sections that became one could both hold the same work: keep one entry and everything I wrote on either.
 function joinSameBooks(list, now = Date.now()) {
   const seen = new Map();
   for (const it of list) {
-    if (it.deleted || it.type !== BOOKS) continue;
-    const keys = [it.ext?.anilist && 'a' + it.ext.anilist, it.title, it.titles?.english, it.titles?.romaji].filter(Boolean).map(k => normalize(String(k))).filter(Boolean);
+    if (it.deleted || (it.type !== BOOKS && it.type !== COMICS)) continue;
+    const keys = [it.ext?.anilist && 'a' + it.ext.anilist, it.title, it.titles?.english, it.titles?.romaji].filter(Boolean).map(k => normalize(String(k))).filter(Boolean).map(k => it.type + k);
     const twin = keys.map(k => seen.get(k)).find(Boolean);
     if (!twin) { keys.forEach(k => seen.set(k, it)); continue; }
     twin.audiobook ||= it.audiobook;
@@ -169,9 +172,7 @@ export function findLinks(it, country = 'us') {
     L('FanFiction.net', `https://www.fanfiction.net/search/?keywords=${q}&type=story`), L('Wattpad', `https://www.wattpad.com/search/${q}`)];
   return {
     'Anime & Series': watch, Movie: watch,
-    Manga: [...comic, L('MANGA Plus', 'https://mangaplus.shueisha.co.jp/search_result?keyword=' + q)],
-    Manhwa: [...comic, L('Webtoon', `https://www.webtoons.com/en/search?keyword=${q}`), L('Tapas', `https://tapas.io/search?q=${q}`)],
-    Manhua: comic,
+    [COMICS]: [...comic, L('MANGA Plus', 'https://mangaplus.shueisha.co.jp/search_result?keyword=' + q), L('Webtoon', `https://www.webtoons.com/en/search?keyword=${q}`), L('Tapas', `https://tapas.io/search?q=${q}`)],
     [BOOKS]: [...book, ...novel, L('Royal Road', `https://www.royalroad.com/fictions/search?title=${q}`), L('Webnovel', `https://www.webnovel.com/search?keywords=${q}`), ...audio],
     Fanfic: fic,
   }[it.type] || [yt, L('Google', `https://www.google.com/search?q=${q}`)];
@@ -199,8 +200,8 @@ export function guessColumns(header) {
 }
 
 const TYPE_WORDS = [
-  [/light ?novel|\bln\b|web ?novel|\bwn\b|novelupdates/, BOOKS], [/manhwa|webtoon/, 'Manhwa'],
-  [/manhua/, 'Manhua'], [/manga/, 'Manga'], [/anime|series|serie|show|\btv\b/, 'Anime & Series'], [/fanfic|fan fic|ao3|\bff\b/, 'Fanfic'],
+  [/light ?novel|\bln\b|web ?novel|\bwn\b|novelupdates/, BOOKS], [/manhwa|manhua|manga|webtoon/, COMICS],
+  [/anime|series|serie|show|\btv\b/, 'Anime & Series'], [/fanfic|fan fic|ao3|\bff\b/, 'Fanfic'],
   [/audio|h(ö|oe)rb[uü]ch/, BOOKS], [/movie|film/, 'Movie'],
   [/tiktok/, 'TikTok'], [/youtube|video/, 'Video'], [/novel|book|b[uü]ch|roman/, BOOKS],
 ];
@@ -320,7 +321,7 @@ export const STARTER_SITES = [
 ];
 
 // ---------- other versions, as small icons ----------
-export const VERSION_ICONS = { 'Anime & Series': '📺', Manga: '📕', Manhwa: '📗', Manhua: '📙', [BOOKS]: '📖', Fanfic: '✍️', Movie: '🎬' };
+const VERSION_TOKENS = { 'Anime & Series': '📺 Anime/Series', [COMICS]: '📕 Manga', [BOOKS]: '📖 Book', Fanfic: '✍️ Fanfic', Movie: '🎬 Movie' };
 const SAME_STORY = new Set(['adaptation', 'source', 'alternative']);
 
 // Which sections hold each title, and each AniList work, across the whole list.
@@ -341,8 +342,9 @@ export function otherVersions(it, index) {
   for (const t of allTitles(it)) for (const type of index.byTitle.get(normalize(t)) || []) found.add(type);
   for (const type of index.byWork.get(it.ext?.anilist) || []) found.add(type);
   found.delete(it.type);
-  return TYPES.filter(t => found.has(t) && VERSION_ICONS[t]);
+  return TYPES.filter(t => found.has(t) && VERSION_TOKENS[t]);
 }
+export const versionTokens = (it, index) => [...otherVersions(it, index).map(t => VERSION_TOKENS[t]), ...(it.audiobook ? ['🎧 Audiobook'] : [])];
 
 // ---------- what is new ----------
 // Compares a title before and after a release check. '' means nothing worth telling.
@@ -478,4 +480,35 @@ export function fileKind(name, mime = '') {
   if (['htm', 'html', 'xhtml'].includes(ext)) return 'html';
   if (['txt', 'md', 'text'].includes(ext) || mime.startsWith('text/')) return 'text';
   return '';
+}
+
+// ---------- tabs in my own order ----------
+export const orderTabs = (ids, order = []) => [...ids].sort((a, b) => {
+  const rank = id => { const r = order.indexOf(id); return r < 0 ? order.length + ids.indexOf(id) : r; };
+  return rank(a) - rank(b);
+});
+export function moveTab(ids, order, id, step) {
+  const now = orderTabs(ids, order), from = now.indexOf(id), to = from + step;
+  if (from < 0 || to < 0 || to >= now.length) return now;
+  now.splice(from, 1); now.splice(to, 0, id);
+  return now;
+}
+
+// ---------- hidden folder: only the sealed text is ever saved or synced ----------
+const toB64 = bytes => { let out = ''; for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(out); };
+const fromB64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+export const newVaultSalt = () => toB64(crypto.getRandomValues(new Uint8Array(16)));
+export async function vaultKey(password, salt) {
+  const raw = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: fromB64(salt), iterations: 600000 }, raw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+export async function sealVault(list, key) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(list)));
+  return { iv: toB64(iv), data: toB64(new Uint8Array(data)) };
+}
+// Fails if the password was wrong, or if the sealed text was changed.
+export async function openVault(record, key) {
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(record.iv) }, key, fromB64(record.data));
+  return JSON.parse(new TextDecoder().decode(plain));
 }

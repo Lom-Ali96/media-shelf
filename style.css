@@ -110,8 +110,11 @@ th, td { border: 1px solid var(--line); padding: .35rem .6rem; text-align: left;
 .siteBar { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: .5rem; }
 .siteBar input { flex: 1 1 200px; }
 #sites h2 { border-bottom: 1px solid var(--line); padding-bottom: .2rem; }
-.versions { font-weight: 400; font-size: .85em; white-space: nowrap; }
-.legend { font-size: .8rem; margin: -.5rem 0 .7rem; }
+.tokens { display: flex; flex-wrap: wrap; gap: .25rem; margin: .15rem 0; }
+.token { font-size: .72rem; line-height: 1.5; border: 1px solid var(--line); border-radius: 99px; padding: 0 .45rem; white-space: nowrap; }
+.tabMove { display: inline-flex; align-items: center; flex: none; }
+.tabMove button { padding: .2rem .35rem; border-radius: 6px; }
+.tabMove button[data-type] { border-radius: 99px; margin: 0 .1rem; }
 .ttsBar { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .5rem 0; }
 .ttsBar select { flex: 1 1 200px; min-width: 0; }
 .ttsSliders { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0 1rem; }

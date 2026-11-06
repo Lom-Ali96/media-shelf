@@ -8,14 +8,19 @@ const csv = s => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
 
 let items = L.migrate(JSON.parse(localStorage.getItem('ms-items') || '[]'));
 const settings = JSON.parse(localStorage.getItem('ms-settings') || '{}');
-if (settings.randomTypes) settings.randomTypes = settings.randomTypes.map(t => ['Light novel', 'Web novel', 'Novel', 'Audiobook'].includes(t) ? L.BOOKS : t);
+if (settings.randomTypes) settings.randomTypes = settings.randomTypes.map(L.sectionName);
 const ui = { type: '' };
-const live = () => items.filter(i => !i.deleted && i.type !== 'Website'); // websites share the list so they sync and back up too
+const HIDDEN = 'hidden folder', vault = { key: null, seen: 0, queue: Promise.resolve() };
+// websites and the sealed hidden folder share the list so they sync and back up too
+const live = () => items.filter(i => !i.deleted && !i.hidden && i.type !== 'Website' && i.type !== 'Vault');
 const sites = () => items.filter(i => !i.deleted && i.type === 'Website');
+const hiddenItems = () => items.filter(i => i.hidden && !i.deleted);
+const shareable = () => items.filter(i => !i.hidden); // unlocked hidden titles must never be saved or synced in the open
+const vaultRecord = () => items.find(i => i.type === 'Vault');
 const byId = id => items.find(i => i.id === id);
 
 function persist() {
-  try { localStorage.setItem('ms-items', JSON.stringify(items)); }
+  try { localStorage.setItem('ms-items', JSON.stringify(shareable())); }
   catch { toast('⚠ This device is out of storage space. Turn on GitHub sync or download a backup.'); }
 }
 const saveSettings = () => localStorage.setItem('ms-settings', JSON.stringify(settings));
@@ -25,6 +30,7 @@ function save(...changed) {
   const now = Date.now();
   for (const it of changed) { it.updatedAt = now; if (!items.includes(it)) items.push(it); }
   persist(); render(); schedulePush();
+  if (changed.some(i => i.hidden)) sealHidden();
 }
 
 function toast(msg) {
@@ -38,7 +44,7 @@ const TO_CHECK = 'to check', needsCheck = i => i.tags.includes('please check') |
 
 function filtered() {
   const q = L.normalize($('#search').value), st = $('#statusFilter').value, tag = $('#tagFilter').value, fav = $('#favFilter').checked, audio = $('#audioFilter').checked;
-  const list = live().filter(i => (!ui.type || (ui.type === TO_CHECK ? needsCheck(i) : i.type === ui.type)) && (!st || i.status === st) && (!tag || i.tags.includes(tag)) && (!fav || i.fav) && (!audio || i.audiobook) &&
+  const list = (ui.type === HIDDEN ? hiddenItems() : live()).filter(i => (!ui.type || ui.type === HIDDEN || (ui.type === TO_CHECK ? needsCheck(i) : i.type === ui.type)) && (!st || i.status === st) && (!tag || i.tags.includes(tag)) && (!fav || i.fav) && (!audio || i.audiobook) &&
     (!q || L.normalize([...L.allTitles(i), i.author, i.notes, i.tags.join(' '), i.source].join(' ')).includes(q)));
   const sorts = {
     updated: (a, b) => b.updatedAt - a.updatedAt,
@@ -49,15 +55,16 @@ function filtered() {
   return list.sort(sorts[$('#sort').value]);
 }
 
+const tokens = (it, index) => { const t = L.versionTokens(it, index); return t.length ? `<div class="tokens" aria-label="Also exists as" title="Also exists as">${t.map(x => `<span class="token">${esc(x)}</span>`).join('')}</div>` : ''; };
+
 function card(it, index) {
-  const versions = L.otherVersions(it, index);
-  const also = [...versions, ...(it.audiobook ? ['audiobook'] : [])];
   const others = [it.titles.english, it.titles.romaji, it.titles.native].filter(t => t && t !== it.title);
   const p = it.progress;
   return `<article class="card" data-id="${it.id}" tabindex="0">
     ${it.cover ? `<img src="${esc(safeUrl(it.cover))}" alt="" loading="lazy">` : `<div class="nocover">${esc(it.type)}</div>`}
     <div class="body">
-      <h3>${esc(it.title)}${also.length ? ` <span class="versions" title="Also exists as: ${esc(also.join(', '))}" aria-label="Also exists as: ${esc(also.join(', '))}">${versions.map(t => L.VERSION_ICONS[t]).join('')}${it.audiobook ? '🎧' : ''}</span>` : ''}</h3>
+      <h3>${esc(it.title)}</h3>
+      ${tokens(it, index)}
       ${others.length ? `<p class="alt">${esc([...new Set(others)].join(' · '))}</p>` : ''}
       <p class="meta"><span class="badge">${esc(it.type)}</span>
         <span class="st-${it.status}">${L.STATUSES[it.status]}</span>
@@ -75,22 +82,36 @@ function render() {
   const all = live(), counts = {};
   all.forEach(i => counts[i.type] = (counts[i.type] || 0) + 1);
   const toCheck = all.filter(needsCheck).length;
-  $('#tabs').innerHTML = [['', 'All', all.length], ...(toCheck ? [[TO_CHECK, '🔎 To check', toCheck]] : []), ...L.TYPES.filter(t => counts[t]).map(t => [t, t, counts[t]])]
-    .map(([v, label, n]) => `<button role="tab" data-type="${esc(v)}" aria-selected="${ui.type === v}">${esc(label)} <small>${n}</small></button>`).join('');
-  const tf = $('#tagFilter'), keep = tf.value, tags = [...new Set(all.flatMap(i => i.tags))].sort();
+  const secret = vault.key ? hiddenItems() : [];
+  const tabs = [['', 'All', all.length], ...(toCheck ? [[TO_CHECK, '🔎 To check', toCheck]] : []), ...(vault.key ? [[HIDDEN, '🔒 Hidden', secret.length]] : []), ...L.TYPES.filter(t => counts[t]).map(t => [t, t, counts[t]])];
+  ui.tabIds = tabs.map(t => t[0]);
+  const bar = $('#tabs'), scrolled = bar.scrollLeft;
+  bar.innerHTML = L.orderTabs(ui.tabIds, settings.tabOrder).map(id => tabs.find(t => t[0] === id)).map(([v, label, n]) => {
+    const tab = `<button role="tab" data-type="${esc(v)}" aria-selected="${ui.type === v}">${esc(label)} <small>${n}</small></button>`;
+    return ui.arranging ? `<span class="tabMove"><button type="button" data-move="-1" data-tab="${esc(v)}" aria-label="Move ${esc(label)} left">◀</button>${tab}<button type="button" data-move="1" data-tab="${esc(v)}" aria-label="Move ${esc(label)} right">▶</button></span>` : tab;
+  }).join('') + `${vault.key ? '<button type="button" data-lock>🔒 Lock</button>' : ''}<button type="button" data-arrange>${ui.arranging ? '✓ Done' : '⇄ Arrange'}</button>`;
+  bar.scrollLeft = scrolled;
+  const tf = $('#tagFilter'), keep = tf.value, tags = [...new Set([...all, ...secret].flatMap(i => i.tags))].sort();
   tf.innerHTML = '<option value="">Any tag / list</option>' + tags.map(t => `<option ${t === keep ? 'selected' : ''}>${esc(t)}</option>`).join('');
   const news = all.filter(i => i.news).length;
   $('[data-view=upcoming]').textContent = news ? `Updates (${news})` : 'Updates';
-  const list = filtered(), index = L.versionIndex(all);
+  const list = filtered(), index = L.versionIndex([...all, ...secret]);
   $('#list').innerHTML = list.map(i => card(i, index)).join('') ||
-    (all.length ? '<p class="muted">Nothing matches these filters.</p>'
+    (ui.type === HIDDEN ? '<p class="muted">Your hidden folder is empty. While this tab is open, new titles you add go here. You can also open any title and move it here.</p>' : all.length ? '<p class="muted">Nothing matches these filters.</p>'
       : `<div><p class="muted">Your shelf is empty. Type a title or paste a link in the box at the top, or load a list you saved earlier:</p>
         <label class="btn primary" for="restoreFile">📂 Load my saved list (.json)</label></div>`);
 }
 
 $('#statusFilter').innerHTML += Object.entries(L.STATUSES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
 ['#search', '#statusFilter', '#tagFilter', '#favFilter', '#audioFilter', '#sort'].forEach(s => $(s).addEventListener('input', render));
-$('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-type]'); if (b) { ui.type = b.dataset.type; render(); } });
+$('#tabs').addEventListener('click', e => {
+  const move = e.target.closest('[data-move]');
+  if (move) { settings.tabOrder = L.moveTab(ui.tabIds, settings.tabOrder, move.dataset.tab, +move.dataset.move); saveSettings(); return render(); }
+  if (e.target.closest('[data-arrange]')) { ui.arranging = !ui.arranging; return render(); }
+  if (e.target.closest('[data-lock]')) return lockHidden();
+  const b = e.target.closest('[data-type]');
+  if (b) { ui.type = b.dataset.type; render(); }
+});
 
 function bump(it) {
   const p = it.progress;
@@ -142,7 +163,7 @@ $('#randomBtn').onclick = () => {
 
 // ---------------- dialogs ----------------
 const dlg = $('#dlg'), dlgForm = $('#dlgForm');
-function showDialog(html) { stopReading(); dlgForm.oninput = dlgForm.onchange = null; dlgForm.innerHTML = html; if (!dlg.open) dlg.showModal(); }
+function showDialog(html) { stopReading(); dlgForm.oninput = dlgForm.onchange = dlgForm.onkeydown = null; dlgForm.innerHTML = html; if (!dlg.open) dlg.showModal(); }
 dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); }); // click outside closes
 dlg.addEventListener('close', () => stopReading());
 dlgForm.addEventListener('submit', e => e.preventDefault()); // Enter in a field must not close the dialog and lose edits
@@ -287,6 +308,7 @@ function addCandidate(cand, status) {
   }
   if (dup && !confirm(`“${dup.title}” is already in your ${dup.type} section. Add it again anyway?`)) return openEdit(dup);
   const it = L.makeItem({ ...cand, status, finished: status === 'finished' ? today() : '' });
+  if (ui.type === HIDDEN) it.hidden = true;
   save(it);
   $('#addInput').value = '';
   toast(`Added to ${it.type}`);
@@ -317,6 +339,7 @@ function openEdit(it) {
     <div class="edit-head">
       ${it.cover ? `<img src="${esc(safeUrl(it.cover))}" alt="">` : ''}
       <div><h2>${esc(it.title)}</h2>
+        ${tokens(it, L.versionIndex([...live(), ...hiddenItems()]))}
         <p class="muted">${esc([it.type, it.year, it.author, it.releaseStatus].filter(Boolean).join(' · '))}</p>
         ${next ? `<p>📅 ${next}</p>` : ''}
         ${it.latestChapter ? `<p>📖 Latest chapter: ${esc(it.latestChapter)}</p>` : ''}
@@ -359,6 +382,7 @@ function openEdit(it) {
     <div class="actions">
       <button type="button" id="saveBtn" class="primary">Save</button>
       <button type="button" data-close>Cancel</button>
+      ${vault.key ? `<button type="button" id="hideBtn">${it.hidden ? '🔓 Move out of hidden' : '🔒 Move to hidden'}</button>` : ''}
       <button type="button" id="delBtn" class="danger">Delete</button>
     </div>`);
 
@@ -376,6 +400,7 @@ function openEdit(it) {
       } catch (err) { toast('Could not load it: ' + err.message); addRel.disabled = false; }
       return;
     }
+    if (e.target.id === 'hideBtn') return moveHidden(it);
     if (e.target.id === 'readBtn') return openReader(it);
     if (e.target.id === 'lookupBtn') return openLookup(it);
     if (e.target.id === 'checkOk') { it.tags = it.tags.filter(t => t !== 'please check' && t !== 'not found'); save(it); toast('Marked as correct'); return openEdit(it); }
@@ -437,7 +462,10 @@ async function postCaption(url) {
   catch { return ''; } // private or deleted video, or offline: pasted text still works
 }
 
-function openPost(text) {
+// A TikTok or YouTube link is a post of its own; a link from a reading or watching site belongs on the title.
+const isPostLink = url => ['TikTok', 'Video', 'Other'].includes(L.parseLink(url)?.type ?? 'Other');
+
+function openPost(text, findNow) {
   showDialog(`<h2>📋 Paste a post or recommendations</h2>
     <p class="muted">Paste a link together with the caption or a list of titles. TikTok does not let apps read its captions, and no app here can see what is said or shown in a video, so type or copy those titles into the box too. For YouTube, the video's title is read for you.</p>
     <label>Post or list <textarea id="postText" rows="6" placeholder="https://www.tiktok.com/@…\n1. Dune\n2. Fourth Wing">${esc(text)}</textarea></label>
@@ -455,7 +483,7 @@ function openPost(text) {
     const caption = url ? await postCaption(url) : '';
     note = caption || typed.replace(url, '').trim();
     const words = (typed + '\n' + caption).replace(/https?:\/\/\S+/g, ' ');
-    const titles = L.extractTitles(words), prefer = L.typeFromText(words) || (/\sby\s/i.test(words) ? L.BOOKS : ''); // "booktok" or "by <author>": the book version first
+    const titles = L.extractTitles(words), prefer = L.typeFromText(words) || (/\sby\s/i.test(words) ? L.BOOKS : '') || (url && !isPostLink(url) ? L.parseLink(url).type : ''); // "booktok" or "by <author>": the book version first
     rows = [];
     for (const [n, title] of titles.entries()) {
       if (!$('#postResult')) return; // dialog was closed
@@ -469,9 +497,10 @@ function openPost(text) {
       <div class="found">${rows.map((r, i) => `<label><input type="checkbox" data-row="${i}" ${r.results.some(x => L.isMatch(r.title, x)) ? 'checked' : ''} aria-label="Add ${esc(r.title)}">
         <select data-choice="${i}" aria-label="Version of ${esc(r.title)}">${r.results.map((x, k) => `<option value="${k}">${esc(x.title)} (${esc(x.type)}${x.year ? ', ' + esc(x.year) : ''})</option>`).join('')}
         <option value="typed">“${esc(r.title)}” as written (Other)</option></select></label>`).join('')}</div>
-      ${url ? `<label class="check"><input type="checkbox" id="postSave" checked> Also save the post itself</label>` : ''}
+      ${url && isPostLink(url) ? `<label class="check"><input type="checkbox" id="postSave" checked> Also save the post itself</label>` : ''}
       ${rows.length || url ? '<div class="actions"><button type="button" id="postAdd" class="primary">Add to my shelf</button></div>' : ''}`;
   };
+  if (findNow) $('#postFind').click();
 }
 
 function addFromPost(rows, url, note) {
@@ -484,10 +513,12 @@ function addFromPost(rows, url, note) {
     if (L.findDuplicate(items, cand)) { skipped++; return; }
     added.push(L.makeItem({ ...cand, source, tags: ['from a post'] }));
   });
+  if (url && !isPostLink(url)) { const site = L.parseLink(url).site; added.forEach(i => i.links.unshift({ label: site, url })); }
   if (url && $('#postSave')?.checked && !items.some(i => !i.deleted && i.links?.some(l => l.url === url))) {
     const link = L.parseLink(url);
     added.push(L.makeItem({ type: link?.type, title: note.split('\n')[0].slice(0, 90) || `${link?.site || 'Saved'} post`, notes: note, links: [{ label: link?.site || 'Link', url }], tags: ['from a post'] }));
   }
+  if (ui.type === HIDDEN) added.forEach(i => { i.hidden = true; });
   if (added.length) save(...added);
   dlg.close();
   toast(`Added ${added.length}${skipped ? `, skipped ${skipped} already on your shelf` : ''}.`);
@@ -913,7 +944,12 @@ function renderSites() {
     <img src="https://icons.duckduckgo.com/ip3/${esc(new URL(s.url).hostname)}.ico" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
     <div><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a><p>${esc(s.note)}</p></div>
     <button type="button" data-site="${s.id}" aria-label="Edit ${esc(s.title)}">✎</button></article>`).join('')}</div>`;
-  box.innerHTML = `<div class="siteBar"><input id="siteSearch" type="search" placeholder="Search websites…" aria-label="Search websites" value="${esc(keep)}">
+  const here = location.origin + location.pathname;
+  const addButton = `javascript:void(window.open('${here}?title='+encodeURIComponent(document.title.split(/ [-|–—:] /)[0])+'&url='+encodeURIComponent(location.href)))`;
+  box.innerHTML = `<details><summary>➕ Add titles straight from other websites</summary>
+      <p class="muted small">Open a site below in your browser. On a title's page, either copy the link and paste it into the box at the top here, or use this button: show your browser's bookmarks bar and drag the button onto it. Clicking it there sends that page to Media Shelf.</p>
+      <p><a class="btn" href="${esc(addButton)}" onclick="return false">➕ Add to Media Shelf</a></p></details>
+    <div class="siteBar"><input id="siteSearch" type="search" placeholder="Search websites…" aria-label="Search websites" value="${esc(keep)}">
     <button type="button" id="siteAdd" class="primary">＋ Add website</button>
     ${L.STARTER_SITES.some(s => !all.some(x => L.siteKey(x.url) === L.siteKey(s.url))) ? '<button type="button" id="siteStarter" title="Reading, watching, listening and game sites with a short explanation">Add suggested websites</button>' : ''}</div>
     ${Object.keys(tree).sort().map(top => `<h2>${esc(top)}</h2>${Object.keys(tree[top]).sort().map(sub => `${sub ? `<h3>${esc(sub)}</h3>` : ''}${list(tree[top][sub])}`).join('')}`).join('')
@@ -962,6 +998,100 @@ function openSite(s) {
     dlg.close(); renderSites();
   };
 }
+
+// ---------------- hidden folder ----------------
+// While unlocked, hidden titles are normal list entries in memory only. What is saved is the sealed vault record.
+function sealHidden() {
+  vault.queue = vault.queue.then(async () => {
+    if (!vault.key) return;
+    const rec = vaultRecord(), sealed = await L.sealVault(items.filter(i => i.hidden), vault.key);
+    vault.seen = Date.now();
+    Object.assign(rec, sealed, { updatedAt: vault.seen });
+    persist(); schedulePush();
+  }).catch(e => toast('⚠ Hidden folder not saved: ' + e.message));
+  return vault.queue;
+}
+
+// Another device changed the hidden folder: bring those changes in.
+async function refreshHidden() {
+  const rec = vaultRecord();
+  if (!vault.key || !rec || rec.updatedAt === vault.seen) return;
+  try {
+    const theirs = await L.openVault(rec, vault.key);
+    const merged = L.mergeItems(items.filter(i => i.hidden), theirs);
+    items = [...shareable(), ...merged.map(i => ({ ...i, hidden: true }))];
+    vault.seen = rec.updatedAt;
+  } catch { await lockHidden(); toast('The hidden folder password was changed on another device. Unlock it again.'); }
+}
+
+async function unlockHidden(password) {
+  const existing = vaultRecord();
+  const salt = existing?.salt || L.newVaultSalt(), key = await L.vaultKey(password, salt);
+  if (existing) {
+    let list;
+    try { list = await L.openVault(existing, key); }
+    catch { return toast('Wrong password.'); }
+    items = [...shareable(), ...list.map(i => ({ ...i, hidden: true }))];
+    vault.seen = existing.updatedAt;
+  } else {
+    items.push({ id: 'vault', type: 'Vault', salt, updatedAt: Date.now(), tags: [], titles: {}, links: [] });
+  }
+  vault.key = key;
+  if (!existing) await sealHidden();
+  dlg.close();
+  ui.type = HIDDEN; showView('library'); render();
+  toast('🔓 Hidden folder open');
+}
+
+async function lockHidden() {
+  await vault.queue;
+  vault.key = null;
+  items = shareable();
+  if (ui.type === HIDDEN) ui.type = '';
+  render(); toast('🔒 Hidden folder locked');
+}
+
+function openVaultDialog() {
+  if (vault.key) { dlg.close(); ui.type = HIDDEN; showView('library'); return render(); }
+  const first = !vaultRecord();
+  showDialog(`<h2>🔒 ${first ? 'Create your hidden folder' : 'Hidden folder'}</h2>
+    ${first ? '<p>Choose a password or code. Your hidden titles are encrypted with it, also on GitHub.</p><p><b>If you forget it, nobody can open the folder again, not even me.</b> Write it down somewhere safe.</p>' : ''}
+    <label>Password or code <input id="vaultPass" type="password" autocomplete="off" required></label>
+    ${first ? '<label>Repeat it <input id="vaultPass2" type="password" autocomplete="off" required></label>' : ''}
+    <div class="actions"><button type="button" id="vaultGo" class="primary">${first ? 'Create' : 'Open'}</button> <button type="button" data-close>Cancel</button></div>`);
+  const go = async () => {
+    const pass = $('#vaultPass').value;
+    if (pass.length < 4) return toast('Use at least 4 characters.');
+    if (first && pass !== $('#vaultPass2').value) return toast('The two entries are not the same.');
+    $('#vaultGo').disabled = true;
+    await unlockHidden(pass);
+    if ($('#vaultGo')) $('#vaultGo').disabled = false;
+  };
+  dlgForm.onclick = e => { if (e.target.closest('[data-close]')) dlg.close(); if (e.target.id === 'vaultGo') go(); };
+  dlgForm.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+  $('#vaultPass').focus();
+}
+$('#vaultBtn').onclick = openVaultDialog;
+
+// An item changes id when it moves, and the old entry is emptied, so synced copies can't bring it back or show its title.
+async function moveHidden(it) {
+  const toHidden = !it.hidden, copy = { ...it, id: L.newId() };
+  if (toHidden) copy.hidden = true; else delete copy.hidden;
+  const emptied = { id: it.id, type: 'Other', title: '', titles: { english: '', romaji: '', native: '', alt: [] }, tags: [], links: [], ext: {}, progress: {}, deleted: true, ...(it.hidden ? { hidden: true } : {}) };
+  items[items.indexOf(it)] = emptied;
+  const chapters = await loadChapters(it.id);
+  if (chapters.length) await chapterStore('readwrite', s => { chapters.forEach(c => s.put({ ...c, itemId: copy.id })); });
+  save(copy, emptied);
+  if (!toHidden) sealHidden();
+  toast(toHidden ? '🔒 Moved to the hidden folder' : '🔓 Moved back to your shelf');
+  openEdit(copy);
+}
+
+// Left unattended, it locks itself.
+document.addEventListener('visibilitychange', () => {
+  clearTimeout(vault.timer);
+  if (document.visibilityState === 'hidden' && vault.key) vault.timer = setTimeout(lockHidden, 5 * 60000);
+});
 
 // ---------------- settings, import, export ----------------
 function fillSettings() {
@@ -1032,7 +1162,7 @@ $('#exportXlsx').onclick = async () => {
 
 $('#backupBtn').onclick = () => {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([JSON.stringify({ version: 1, items }, null, 1)], { type: 'application/json' }));
+  a.href = URL.createObjectURL(new Blob([JSON.stringify({ version: 1, items: shareable() }, null, 1)], { type: 'application/json' }));
   a.download = `media-shelf-backup-${today()}.json`; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
@@ -1041,7 +1171,7 @@ $('#restoreFile').onchange = async e => {
   try {
     const data = JSON.parse(await file.text());
     if (!Array.isArray(data.items)) throw new Error('this is not a Media Shelf backup');
-    items = L.mergeItems(items, data.items); persist(); render(); schedulePush(); toast('Backup restored (merged with your current list)');
+    items = L.mergeItems(items, data.items); persist(); await refreshHidden(); render(); schedulePush(); toast('Backup restored (merged with your current list)');
   } catch (err) { toast('Restore failed: ' + err.message); }
 };
 
@@ -1085,10 +1215,10 @@ async function sync() {
   try {
     for (let attempt = 0; ; attempt++) {
       const remote = await pull();
-      items = L.mergeItems(items, remote); persist(); render();
-      const rmap = new Map(remote.map(i => [i.id, i.updatedAt]));
-      if (items.length === remote.length && items.every(i => rmap.get(i.id) === i.updatedAt)) break; // nothing new to upload
-      const r = await gh('PUT', { message: `Update shelf (${live().length} titles)`, content: encode(JSON.stringify({ version: 1, items })), ...(sha && { sha }) });
+      items = L.mergeItems(items, remote); persist(); await refreshHidden(); render();
+      const rmap = new Map(remote.map(i => [i.id, i.updatedAt])), mine = shareable();
+      if (mine.length === remote.length && mine.every(i => rmap.get(i.id) === i.updatedAt)) break; // nothing new to upload
+      const r = await gh('PUT', { message: `Update shelf (${live().length} titles)`, content: encode(JSON.stringify({ version: 1, items: mine })), ...(sha && { sha }) });
       if (r.ok) { sha = (await r.json()).content.sha; break; }
       if (![409, 422].includes(r.status) || attempt) throw ghError(r); // 409/422: another device saved first, so pull again and retry once
     }
@@ -1123,4 +1253,4 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 // Shared from another app (on phones): the system opens this page with the post in the address.
 const shared = new URLSearchParams(location.search);
 const sharedText = ['title', 'text', 'url'].map(k => shared.get(k)).filter(Boolean).join('\n');
-if (sharedText) { history.replaceState(null, '', location.pathname); openPost(sharedText); }
+if (sharedText) { history.replaceState(null, '', location.pathname); openPost(sharedText, true); }

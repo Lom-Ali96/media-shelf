@@ -4,8 +4,8 @@ import { deflateRawSync } from 'node:zlib';
 import * as L from './logic.js';
 
 // sorting AniList results into sections
-assert.equal(L.anilistType({ type: 'MANGA', format: 'MANGA', countryOfOrigin: 'KR' }), 'Manhwa');
-assert.equal(L.anilistType({ type: 'MANGA', format: 'MANGA', countryOfOrigin: 'CN' }), 'Manhua');
+assert.equal(L.anilistType({ type: 'MANGA', format: 'MANGA', countryOfOrigin: 'KR' }), L.COMICS);
+assert.equal(L.anilistType({ type: 'MANGA', format: 'MANGA', countryOfOrigin: 'CN' }), L.COMICS);
 assert.equal(L.anilistType({ type: 'MANGA', format: 'NOVEL', countryOfOrigin: 'JP' }), L.BOOKS);
 assert.equal(L.anilistType({ type: 'MANGA', format: 'NOVEL', countryOfOrigin: 'KR' }), L.BOOKS);
 assert.equal(L.anilistType({ type: 'ANIME', format: 'MOVIE', countryOfOrigin: 'JP' }), 'Anime & Series');
@@ -23,11 +23,11 @@ assert.equal(L.parseLink('not a link'), null);
 assert.ok(L.isUrl('https://ao3.org/x') && !L.isUrl('Solo Leveling'));
 
 // duplicates: same title + same section only, any language
-const a = L.makeItem({ type: 'Manhwa', title: 'Solo Leveling', titles: { native: '나 혼자만 레벨업' } });
-assert.ok(L.findDuplicate([a], { type: 'Manhwa', title: 'solo-leveling!' }));
-assert.ok(L.findDuplicate([a], { type: 'Manhwa', title: 'x', titles: { alt: ['나 혼자만 레벨업'] } }));
+const a = L.makeItem({ type: L.COMICS, title: 'Solo Leveling', titles: { native: '나 혼자만 레벨업' } });
+assert.ok(L.findDuplicate([a], { type: L.COMICS, title: 'solo-leveling!' }));
+assert.ok(L.findDuplicate([a], { type: L.COMICS, title: 'x', titles: { alt: ['나 혼자만 레벨업'] } }));
 assert.equal(L.findDuplicate([a], { type: 'Anime & Series', title: 'Solo Leveling' }), undefined);
-assert.equal(L.findDuplicate([{ ...a, deleted: true }], { type: 'Manhwa', title: 'Solo Leveling' }), undefined);
+assert.equal(L.findDuplicate([{ ...a, deleted: true }], { type: L.COMICS, title: 'Solo Leveling' }), undefined);
 
 // spelling closeness
 assert.equal(L.similarity('Solo Leveling', 'solo-leveling!'), 1);
@@ -59,13 +59,13 @@ assert.ok(L.findLinks({ type: 'Other', title: 'x' }).length > 0);
 const map = L.guessColumns(['Title', 'Type', 'Rating', 'Date Read', 'Link', 'Notes']);
 assert.deepEqual(map, { title: 0, type: 1, grade: 2, finished: 3, link: 4, notes: 5 });
 const c = L.rowToCandidate(['Omniscient Reader', 'webtoon', '9,5', '03.05.2024', '', 'great'], map);
-assert.equal(c.type, 'Manhwa'); assert.equal(c.grade, 9.5); assert.equal(c.finished, '2024-05-03'); assert.equal(c.status, 'finished');
+assert.equal(c.type, L.COMICS); assert.equal(c.grade, 9.5); assert.equal(c.finished, '2024-05-03'); assert.equal(c.status, 'finished');
 const c2 = L.rowToCandidate(['Some fic', '', '', '', 'https://archiveofourown.org/works/1', ''], map);
 assert.equal(c2.type, 'Fanfic'); assert.equal(c2.status, 'planning');
 assert.equal(L.rowToCandidate(['', '', '', '', '', ''], map), null);
-assert.equal(L.rowToCandidate(['Berserk'], {}, 'Manga').type, 'Manga');
-assert.equal(L.rowToCandidate(['fic', '', '', '', 'https://archiveofourown.org/works/5'], map, 'Manhwa').type, 'Fanfic'); // link beats sheet name
-assert.equal(L.rowToCandidate(['x', '', '', '', 'https://example.com/x'], map, 'Manhwa').type, 'Manhwa'); // unknown site: sheet name
+assert.equal(L.rowToCandidate(['Berserk'], {}, 'Manga').type, L.COMICS);
+assert.equal(L.rowToCandidate(['fic', '', '', '', 'https://archiveofourown.org/works/5'], map, L.COMICS).type, 'Fanfic'); // link beats sheet name
+assert.equal(L.rowToCandidate(['x', '', '', '', 'https://example.com/x'], map, L.COMICS).type, L.COMICS); // unknown site: sheet name
 assert.equal(L.parseDate(new Date(2024, 0, 9)), '2024-01-09');
 assert.equal(L.parseDate('2024/1/9'), '2024-01-09');
 assert.equal(L.statusFromText('to-read'), 'planning');
@@ -76,7 +76,7 @@ assert.equal(L.typeFromText('Bücher'), L.BOOKS);
 
 // statistics
 const s = L.stats([{ ...a, status: 'finished', grade: 8, finished: '2025-02-01', genres: ['Action'] }, { ...a, id: 'x', deleted: true }]);
-assert.equal(s.total, 1); assert.equal(s.byType.Manhwa.gradeSum, 8); assert.equal(s.byYear['2025'], 1);
+assert.equal(s.total, 1); assert.equal(s.byType[L.COMICS].gradeSum, 8); assert.equal(s.byYear['2025'], 1);
 assert.equal(L.STATUSES.finished, 'Finished');
 assert.equal(L.RELEASE.FINISHED, 'Complete'); // release state must not read like my own "Finished"
 
@@ -115,11 +115,11 @@ assert.equal(L.rowToCandidate(['Mistborn'], {}, 'Hörbücher').audiobook, true);
 assert.equal(L.rowToCandidate(['Mistborn'], {}, 'Hörbücher').type, L.BOOKS);
 
 // version icons
-const vNovel = { id: 'v1', type: L.BOOKS, title: 'Story', titles: {}, ext: { anilist: 1 }, relations: [{ anilistId: 2, type: 'Manga', rel: 'adaptation' }, { anilistId: 3, type: L.BOOKS, rel: 'sequel' }, { anilistId: 4, type: 'Movie', rel: 'side story' }] };
-const vManga = { id: 'v2', type: 'Manga', title: 'Other Name', titles: {}, ext: { anilist: 2 }, relations: [] };
+const vNovel = { id: 'v1', type: L.BOOKS, title: 'Story', titles: {}, ext: { anilist: 1 }, relations: [{ anilistId: 2, type: L.COMICS, rel: 'adaptation' }, { anilistId: 3, type: L.BOOKS, rel: 'sequel' }, { anilistId: 4, type: 'Movie', rel: 'side story' }] };
+const vManga = { id: 'v2', type: L.COMICS, title: 'Other Name', titles: {}, ext: { anilist: 2 }, relations: [] };
 const vFilm = { id: 'v3', type: 'Movie', title: 'story!', titles: {}, ext: {} };
 const vIndex = L.versionIndex([vNovel, vManga, vFilm]);
-assert.deepEqual(L.otherVersions(vNovel, vIndex), ['Manga', 'Movie']); // own section left out; sequels and side stories don't count
+assert.deepEqual(L.otherVersions(vNovel, vIndex), [L.COMICS, 'Movie']); // own section left out; sequels and side stories don't count
 assert.deepEqual(L.otherVersions(vManga, vIndex), [L.BOOKS]); // found through the novel pointing at it
 assert.deepEqual(L.otherVersions(vFilm, vIndex), [L.BOOKS]); // found through the same title
 assert.deepEqual(L.otherVersions({ type: 'Other', title: 'Alone', titles: {}, ext: {} }, vIndex), []);
@@ -191,6 +191,38 @@ assert.throws(() => L.readZip(new ArrayBuffer(50)), /damaged/);
 await assert.rejects(L.epubChapters(L.readZip(zipOf([['a', 'b']]))), /damaged/);
 assert.equal(L.fileKind('Book.MP3'), 'audio'); assert.equal(L.fileKind('x.mp4'), 'audio'); assert.equal(L.fileKind('x.bin', 'audio/mpeg'), 'audio');
 assert.equal(L.fileKind('a.pdf'), 'pdf'); assert.equal(L.fileKind('a.epub'), 'epub'); assert.equal(L.fileKind('a.docx'), 'docx'); assert.equal(L.fileKind('a.html'), 'html'); assert.equal(L.fileKind('a.md'), 'text'); assert.equal(L.fileKind('a.doc'), '');
+
+// one comics section
+const comicsOld = [
+  { id: 'j', type: 'Manga', title: 'Twin Title', titles: {}, links: [], tags: [], grade: 8, updatedAt: 1 },
+  { id: 'k', type: 'Manhwa', title: 'Twin Title', titles: {}, links: [], tags: [], updatedAt: 1 },
+  { id: 'o', type: 'Manhua', title: 'Only Here', titles: {}, links: [], tags: [], updatedAt: 1 },
+  { id: 'p', type: L.BOOKS, title: 'Twin Title', titles: {}, links: [], tags: [], updatedAt: 1 },
+];
+L.migrate(comicsOld);
+assert.ok(comicsOld.filter(i => i.id !== 'p').every(i => i.type === L.COMICS));
+assert.equal(comicsOld[1].deleted, true); assert.equal(comicsOld[0].grade, 8); assert.ok(!comicsOld[2].deleted);
+assert.ok(!comicsOld[3].deleted); // a book of the same name is another version
+assert.equal(L.sectionName('Manhua'), L.COMICS); assert.equal(L.sectionName('Movie'), 'Movie');
+assert.deepEqual(L.versionTokens({ type: 'Movie', title: 'x', titles: {}, ext: {}, audiobook: true, relations: [{ anilistId: 1, type: L.COMICS, rel: 'source' }] }, L.versionIndex([])), ['📕 Manga', '🎧 Audiobook']);
+
+// tabs in my own order
+assert.deepEqual(L.orderTabs(['a', 'b', 'c'], []), ['a', 'b', 'c']);
+assert.deepEqual(L.orderTabs(['a', 'b', 'c'], ['c', 'a']), ['c', 'a', 'b']); // a new tab goes last
+assert.deepEqual(L.orderTabs(['a', 'b'], ['gone', 'b', 'a']), ['b', 'a']);
+assert.deepEqual(L.moveTab(['a', 'b', 'c'], [], 'c', -1), ['a', 'c', 'b']);
+assert.deepEqual(L.moveTab(['a', 'b', 'c'], [], 'a', -1), ['a', 'b', 'c']); // already first
+assert.deepEqual(L.moveTab(['a', 'b', 'c'], [], 'c', 1), ['a', 'b', 'c']); // already last
+
+// hidden folder
+const salt = L.newVaultSalt(), secretKey = await L.vaultKey('correct horse', salt);
+const secret = [{ id: 'h1', title: 'Geheimnis 秘密', hidden: true }];
+const sealed = await L.sealVault(secret, secretKey);
+assert.ok(!JSON.stringify(sealed).includes('Geheimnis') && !atob(sealed.data).includes('Geheimnis')); // the title can't be read in what is saved
+assert.deepEqual(await L.openVault(sealed, secretKey), secret);
+await assert.rejects(L.openVault(sealed, await L.vaultKey('wrong', salt))); // wrong password
+await assert.rejects(L.openVault({ ...sealed, data: btoa('tampered with this text') }, secretKey)); // changed text
+assert.notEqual((await L.sealVault(secret, secretKey)).data, sealed.data); // sealed differently every time
 
 // websites
 assert.equal(L.siteKey('https://www.royalroad.com/'), 'royalroad.com');
