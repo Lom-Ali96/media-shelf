@@ -24,7 +24,7 @@
       <button data-view="library" class="on">Library</button>
       <button id="pasteBtn" title="Paste a post, link or list of recommendations">📋 Paste post</button>
       <button data-view="sites">Websites</button>
-      <button data-view="upcoming">Upcoming</button>
+      <button data-view="upcoming">Updates</button>
       <button data-view="stats">Stats</button>
       <button data-view="settings">Settings</button>
       <button id="themeBtn" title="Dark / light mode" aria-label="Toggle dark mode">🌓</button>
@@ -48,6 +48,7 @@
       </select>
       <button id="randomBtn" title="Pick something at random, from the sections you choose">🎲 What next?</button>
     </div>
+    <p class="legend muted">Also exists as: 📺 anime or series · 📕 manga · 📗 manhwa · 📙 manhua · 📖 book · 🎬 movie · ✍️ fanfic · 🎧 audiobook</p>
     <div id="list" class="grid"></div>
   </section>
   <section id="sites" hidden></section>
@@ -69,8 +70,9 @@
       <button id="exportXlsx">Download as Excel</button></p>
     <p><button id="backupBtn">Download full backup (.json)</button>
       <label class="btn">Restore backup… <input type="file" id="restoreFile" accept=".json" hidden></label></p>
-    <h2>Release info</h2>
-    <p><button id="refreshBtn">Update release status and next episodes</button></p>
+    <h2>Updates</h2>
+    <p class="muted">Runs by itself once a day while the app is open.</p>
+    <p><button id="refreshBtn">Check for updates now</button></p>
     <h2>Audiobooks</h2>
     <p class="muted">Looks up your books on Apple Books and adds a 🎧 mark to those with an audiobook. Stops safely if you close the app, and continues next time.</p>
     <p><button id="audioCheckBtn">🎧 Check which books have an audiobook</button></p>

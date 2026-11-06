@@ -113,6 +113,24 @@ assert.equal(L.makeItem({ title: 'x', type: L.BOOKS }).audiobook, false);
 assert.equal(L.rowToCandidate(['Mistborn'], {}, 'Hörbücher').audiobook, true);
 assert.equal(L.rowToCandidate(['Mistborn'], {}, 'Hörbücher').type, L.BOOKS);
 
+// version icons
+const vNovel = { id: 'v1', type: L.BOOKS, title: 'Story', titles: {}, ext: { anilist: 1 }, relations: [{ anilistId: 2, type: 'Manga', rel: 'adaptation' }, { anilistId: 3, type: L.BOOKS, rel: 'sequel' }, { anilistId: 4, type: 'Movie', rel: 'side story' }] };
+const vManga = { id: 'v2', type: 'Manga', title: 'Other Name', titles: {}, ext: { anilist: 2 }, relations: [] };
+const vFilm = { id: 'v3', type: 'Movie', title: 'story!', titles: {}, ext: {} };
+const vIndex = L.versionIndex([vNovel, vManga, vFilm]);
+assert.deepEqual(L.otherVersions(vNovel, vIndex), ['Manga', 'Movie']); // own section left out; sequels and side stories don't count
+assert.deepEqual(L.otherVersions(vManga, vIndex), [L.BOOKS]); // found through the novel pointing at it
+assert.deepEqual(L.otherVersions(vFilm, vIndex), [L.BOOKS]); // found through the same title
+assert.deepEqual(L.otherVersions({ type: 'Other', title: 'Alone', titles: {}, ext: {} }, vIndex), []);
+
+// what is new
+const ep = (label, at) => ({ label, at });
+assert.equal(L.releaseNews({ nextRelease: ep('Episode 5', 100) }, { nextRelease: ep('Episode 6', 900) }, 200), 'Episode 5 is out');
+assert.equal(L.releaseNews({ nextRelease: ep('Episode 5', 300) }, { nextRelease: ep('Episode 5', 300) }, 200), '');
+assert.equal(L.releaseNews({ nextRelease: ep('Episode 5', 100) }, { nextRelease: null }, 200), 'Episode 5 is out'); // it was the last one
+assert.equal(L.releaseNews({ releaseStatus: 'Ongoing' }, { releaseStatus: 'Complete' }, 200), 'Now: Complete');
+assert.equal(L.releaseNews({ releaseStatus: '' }, { releaseStatus: 'Ongoing' }, 200), ''); // first look at a title is not news
+
 // websites
 assert.equal(L.siteKey('https://www.royalroad.com/'), 'royalroad.com');
 assert.equal(L.siteKey('not a link'), 'not a link');

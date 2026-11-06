@@ -34,9 +34,11 @@ function toast(msg) {
 }
 
 // ---------------- library screen ----------------
+const TO_CHECK = 'to check', needsCheck = i => i.tags.includes('please check') || i.tags.includes('not found');
+
 function filtered() {
   const q = L.normalize($('#search').value), st = $('#statusFilter').value, tag = $('#tagFilter').value, fav = $('#favFilter').checked, audio = $('#audioFilter').checked;
-  const list = live().filter(i => (!ui.type || i.type === ui.type) && (!st || i.status === st) && (!tag || i.tags.includes(tag)) && (!fav || i.fav) && (!audio || i.audiobook) &&
+  const list = live().filter(i => (!ui.type || (ui.type === TO_CHECK ? needsCheck(i) : i.type === ui.type)) && (!st || i.status === st) && (!tag || i.tags.includes(tag)) && (!fav || i.fav) && (!audio || i.audiobook) &&
     (!q || L.normalize([...L.allTitles(i), i.author, i.notes, i.tags.join(' '), i.source].join(' ')).includes(q)));
   const sorts = {
     updated: (a, b) => b.updatedAt - a.updatedAt,
@@ -47,16 +49,17 @@ function filtered() {
   return list.sort(sorts[$('#sort').value]);
 }
 
-function card(it) {
+function card(it, index) {
+  const versions = L.otherVersions(it, index);
+  const also = [...versions, ...(it.audiobook ? ['audiobook'] : [])];
   const others = [it.titles.english, it.titles.romaji, it.titles.native].filter(t => t && t !== it.title);
   const p = it.progress;
   return `<article class="card" data-id="${it.id}" tabindex="0">
     ${it.cover ? `<img src="${esc(safeUrl(it.cover))}" alt="" loading="lazy">` : `<div class="nocover">${esc(it.type)}</div>`}
     <div class="body">
-      <h3>${esc(it.title)}</h3>
+      <h3>${esc(it.title)}${also.length ? ` <span class="versions" title="Also exists as: ${esc(also.join(', '))}" aria-label="Also exists as: ${esc(also.join(', '))}">${versions.map(t => L.VERSION_ICONS[t]).join('')}${it.audiobook ? '🎧' : ''}</span>` : ''}</h3>
       ${others.length ? `<p class="alt">${esc([...new Set(others)].join(' · '))}</p>` : ''}
       <p class="meta"><span class="badge">${esc(it.type)}</span>
-        ${it.audiobook ? '<span title="Also exists as an audiobook" aria-label="Also exists as an audiobook">🎧</span>' : ''}
         <span class="st-${it.status}">${L.STATUSES[it.status]}</span>
         ${it.grade ? `<span>★ ${it.grade}</span>` : ''}
         ${it.releaseStatus ? `<span class="muted">${esc(it.releaseStatus)}</span>` : ''}</p>
@@ -71,12 +74,15 @@ function card(it) {
 function render() {
   const all = live(), counts = {};
   all.forEach(i => counts[i.type] = (counts[i.type] || 0) + 1);
-  $('#tabs').innerHTML = [['', 'All', all.length], ...L.TYPES.filter(t => counts[t]).map(t => [t, t, counts[t]])]
+  const toCheck = all.filter(needsCheck).length;
+  $('#tabs').innerHTML = [['', 'All', all.length], ...(toCheck ? [[TO_CHECK, '🔎 To check', toCheck]] : []), ...L.TYPES.filter(t => counts[t]).map(t => [t, t, counts[t]])]
     .map(([v, label, n]) => `<button role="tab" data-type="${esc(v)}" aria-selected="${ui.type === v}">${esc(label)} <small>${n}</small></button>`).join('');
   const tf = $('#tagFilter'), keep = tf.value, tags = [...new Set(all.flatMap(i => i.tags))].sort();
   tf.innerHTML = '<option value="">Any tag / list</option>' + tags.map(t => `<option ${t === keep ? 'selected' : ''}>${esc(t)}</option>`).join('');
-  const list = filtered();
-  $('#list').innerHTML = list.map(card).join('') ||
+  const news = all.filter(i => i.news).length;
+  $('[data-view=upcoming]').textContent = news ? `Updates (${news})` : 'Updates';
+  const list = filtered(), index = L.versionIndex(all);
+  $('#list').innerHTML = list.map(i => card(i, index)).join('') ||
     (all.length ? '<p class="muted">Nothing matches these filters.</p>'
       : `<div><p class="muted">Your shelf is empty. Type a title or paste a link in the box at the top, or load a list you saved earlier:</p>
         <label class="btn primary" for="restoreFile">📂 Load my saved list (.json)</label></div>`);
@@ -318,6 +324,7 @@ function openEdit(it) {
       ? `<button type="button" data-open="${r.have.id}">✔ ${esc(r.type)}: ${esc(r.title)}</button>`
       : `<button type="button" data-addrel="${r.anilistId}" title="Add to your list">＋ ${esc(r.type)}: ${esc(r.title)} <small>(${esc(r.rel)})</small></button>`).join('')}</div>` : ''}
     <p><button type="button" id="lookupBtn">🔎 ${Object.keys(it.ext).length ? 'Wrong title or cover? Search again' : 'Find titles, cover and links online'}</button></p>
+    ${needsCheck(it) ? '<p><button type="button" id="checkOk">✓ This is correct, stop asking</button></p>' : ''}
     <h3>Read / watch / listen</h3>
     <div class="chips">${it.links.map(l => safeUrl(l.url) && `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label || 'Link')}</a>`).join('')}</div>
     <p class="muted small">Search on: ${finds.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`).join(' · ')}</p>
@@ -367,6 +374,7 @@ function openEdit(it) {
       return;
     }
     if (e.target.id === 'lookupBtn') return openLookup(it);
+    if (e.target.id === 'checkOk') { it.tags = it.tags.filter(t => t !== 'please check' && t !== 'not found'); save(it); toast('Marked as correct'); return openEdit(it); }
     if (e.target.id === 'delBtn' && confirm(`Delete “${it.title}” from your shelf?`)) {
       it.deleted = true; save(it); dlg.close(); toast('Deleted');
     }
@@ -596,33 +604,39 @@ async function searchAll(q) {
   return all.flatMap(r => r.value || []).filter(r => r.title);
 }
 
-async function refreshReleases() {
-  const btn = $('#refreshBtn'); btn.disabled = true; btn.textContent = 'Updating…';
+async function refreshReleases(quiet) {
+  const btn = $('#refreshBtn'); btn.disabled = true; btn.textContent = 'Checking…';
   const changed = [];
+  const update = (it, releaseStatus, nextRelease) => {
+    const before = JSON.stringify([it.releaseStatus, it.nextRelease]);
+    const news = L.releaseNews(it, { releaseStatus, nextRelease });
+    if (news && it.status !== 'dropped') it.news = news;
+    Object.assign(it, { releaseStatus, nextRelease });
+    if (JSON.stringify([it.releaseStatus, it.nextRelease]) !== before) changed.push(it);
+  };
   try {
     const al = live().filter(i => i.ext?.anilist);
     for (let n = 0; n < al.length; n += 50) {
       const fresh = await aniListByIds(al.slice(n, n + 50).map(i => i.ext.anilist));
       for (const f of fresh) for (const it of al.filter(i => i.ext.anilist === f.ext.anilist)) {
-        const before = JSON.stringify([it.releaseStatus, it.nextRelease, it.progress.total]);
-        Object.assign(it, { releaseStatus: f.releaseStatus, nextRelease: f.nextRelease || null });
+        update(it, f.releaseStatus, f.nextRelease || null);
         it.progress.total ||= f.total || null;
-        if (JSON.stringify([it.releaseStatus, it.nextRelease, it.progress.total]) !== before) changed.push(it);
       }
     }
     for (const it of live().filter(i => i.ext?.tvmaze)) {
       const s = await getJson(`https://api.tvmaze.com/shows/${it.ext.tvmaze}?embed=nextepisode`);
       const ep = s._embedded?.nextepisode;
       const next = ep ? { at: Date.parse(ep.airstamp), label: `Season ${ep.season} episode ${ep.number}` } : null;
-      if (JSON.stringify([it.releaseStatus, it.nextRelease]) !== JSON.stringify([L.RELEASE[s.status] || s.status, next])) {
-        Object.assign(it, { releaseStatus: L.RELEASE[s.status] || s.status, nextRelease: next }); changed.push(it);
-      }
+      update(it, L.RELEASE[s.status] || s.status, next);
       await new Promise(r => setTimeout(r, 500)); // shortcut: fixed pause to stay under TVmaze's rate limit; fine for a few hundred shows
     }
-    if (changed.length) save(...changed);
-    toast(`Release info updated (${changed.length} changed)`);
-  } catch (e) { toast('Update stopped: ' + e.message); if (changed.length) save(...changed); }
-  btn.disabled = false; btn.textContent = 'Update release status and next episodes';
+    settings.lastCheck = Date.now(); saveSettings();
+    const fresh = changed.filter(i => i.news).length;
+    if (!quiet || fresh) toast(fresh ? `🔔 ${fresh} new update${fresh > 1 ? 's' : ''}: see Updates` : 'Everything is up to date.');
+  } catch (e) { if (!quiet) toast('Check stopped: ' + e.message); } // the daily check tries again next time
+  if (changed.length) save(...changed);
+  btn.disabled = false; btn.textContent = 'Check for updates now';
+  if (!$('#upcoming').hidden) renderUpcoming();
 }
 
 // ---------------- other screens ----------------
@@ -641,13 +655,27 @@ function renderUpcoming() {
   const dated = live().filter(i => i.nextRelease?.at > now).sort((a, b) => a.nextRelease.at - b.nextRelease.at);
   const ongoing = live().filter(i => i.releaseStatus === 'Ongoing' && !dated.includes(i) && i.status !== 'dropped');
   const row = (i, when) => `<li><button type="button" class="linklike" data-open="${i.id}">${esc(i.title)}</button> <span class="badge">${esc(i.type)}</span> ${when}</li>`;
-  $('#upcoming').innerHTML = `<h2>Coming up</h2>
+  const news = live().filter(i => i.news);
+  $('#upcoming').innerHTML = `<h2>New</h2>
+    ${news.length ? `<ul>${news.map(i => row(i, `— <b>${esc(i.news)}</b> <button type="button" data-seen="${i.id}" aria-label="Seen ${esc(i.title)}">✓ Seen</button>`)).join('')}</ul><p><button type="button" data-seen="all">✓ Mark all as seen</button></p>`
+      : '<p class="muted">Nothing new.</p>'}
+    <p class="muted small">Checked by itself once a day while the app is open${settings.lastCheck ? `. Last check: ${new Date(settings.lastCheck).toLocaleString()}` : ''}.</p>
+    <h2>Coming up</h2>
     ${dated.length ? `<ul>${dated.map(i => row(i, `— ${esc(i.nextRelease.label)}, ${new Date(i.nextRelease.at).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} (in ${Math.ceil((i.nextRelease.at - now) / 864e5)} days)`)).join('')}</ul>`
-      : '<p class="muted">No dates known. Press “Update release status” in Settings to check.</p>'}
+      : '<p class="muted">No dates known yet.</p>'}
     <h2>Still coming out (no date yet)</h2>
     ${ongoing.length ? `<ul>${ongoing.map(i => row(i, '')).join('')}</ul>` : '<p class="muted">None.</p>'}`;
 }
-$('#upcoming').addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) openEdit(byId(b.dataset.open)); });
+$('#upcoming').addEventListener('click', e => {
+  const seen = e.target.closest('[data-seen]');
+  if (seen) {
+    const done = seen.dataset.seen === 'all' ? live().filter(i => i.news) : [byId(seen.dataset.seen)];
+    done.forEach(i => delete i.news); save(...done);
+    return renderUpcoming();
+  }
+  const b = e.target.closest('[data-open]');
+  if (b) openEdit(byId(b.dataset.open));
+});
 
 function renderStats() {
   const s = L.stats(live());
@@ -736,7 +764,7 @@ $('#syncForm').addEventListener('submit', e => {
 });
 $('#unsyncBtn').onclick = () => { delete settings.sync; saveSettings(); $('#syncForm').reset(); setSync('Sync off'); };
 $('#country').onchange = e => { settings.country = e.target.value.trim().toLowerCase(); saveSettings(); };
-$('#refreshBtn').onclick = refreshReleases;
+$('#refreshBtn').onclick = () => refreshReleases();
 $('#audioCheckBtn').onclick = checkAllAudiobooks;
 
 function loadXlsx() {
@@ -870,6 +898,7 @@ persist(); // keep any section changes from migrate
 render();
 setSync(settings.sync ? '' : 'Sync off');
 sync();
+if (Date.now() - (settings.lastCheck || 0) > 20 * 36e5) setTimeout(() => refreshReleases(true), 8000);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 
 // Shared from another app (on phones): the system opens this page with the post in the address.

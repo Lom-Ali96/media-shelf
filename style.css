@@ -110,6 +110,8 @@ th, td { border: 1px solid var(--line); padding: .35rem .6rem; text-align: left;
 .siteBar { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: .5rem; }
 .siteBar input { flex: 1 1 200px; }
 #sites h2 { border-bottom: 1px solid var(--line); padding-bottom: .2rem; }
+.versions { font-weight: 400; font-size: .85em; white-space: nowrap; }
+.legend { font-size: .8rem; margin: -.5rem 0 .7rem; }
 #toast { position: fixed; left: 50%; bottom: 1.2rem; transform: translateX(-50%) translateY(150%); background: var(--text); color: var(--bg); padding: .6rem 1rem; border-radius: 10px; transition: transform .25s; max-width: 92vw; z-index: 10; }
 #toast.show { transform: translateX(-50%); }
 

@@ -318,3 +318,37 @@ export const STARTER_SITES = [
   site('Playing › Web games', 'CrazyGames', 'https://www.crazygames.com', 'Free browser games with nothing to install.'),
   site('Playing › Web games', 'Poki', 'https://poki.com', 'Free browser games, mostly quick and casual.'),
 ];
+
+// ---------- other versions, as small icons ----------
+export const VERSION_ICONS = { 'Anime & Series': '📺', Manga: '📕', Manhwa: '📗', Manhua: '📙', [BOOKS]: '📖', Fanfic: '✍️', Movie: '🎬' };
+const SAME_STORY = new Set(['adaptation', 'source', 'alternative']);
+
+// Which sections hold each title, and each AniList work, across the whole list.
+export function versionIndex(items) {
+  const byTitle = new Map(), byWork = new Map();
+  const add = (map, key, type) => { if (key) { if (!map.has(key)) map.set(key, new Set()); map.get(key).add(type); } };
+  for (const it of items) {
+    for (const t of allTitles(it)) add(byTitle, normalize(t), it.type);
+    for (const r of it.relations || []) if (SAME_STORY.has(r.rel)) add(byWork, r.anilistId, it.type);
+  }
+  return { byTitle, byWork };
+}
+
+// The sections this story also exists in, besides its own.
+export function otherVersions(it, index) {
+  const found = new Set();
+  for (const r of it.relations || []) if (SAME_STORY.has(r.rel)) found.add(r.type);
+  for (const t of allTitles(it)) for (const type of index.byTitle.get(normalize(t)) || []) found.add(type);
+  for (const type of index.byWork.get(it.ext?.anilist) || []) found.add(type);
+  found.delete(it.type);
+  return TYPES.filter(t => found.has(t) && VERSION_ICONS[t]);
+}
+
+// ---------- what is new ----------
+// Compares a title before and after a release check. '' means nothing worth telling.
+export function releaseNews(before, after, now = Date.now()) {
+  const was = before.nextRelease;
+  if (was?.at && was.at <= now && was.label !== after.nextRelease?.label) return was.label + ' is out';
+  if (before.releaseStatus && after.releaseStatus && before.releaseStatus !== after.releaseStatus) return 'Now: ' + after.releaseStatus;
+  return '';
+}
