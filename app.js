@@ -75,7 +75,9 @@ function render() {
   tf.innerHTML = '<option value="">Any tag / list</option>' + tags.map(t => `<option ${t === keep ? 'selected' : ''}>${esc(t)}</option>`).join('');
   const list = filtered();
   $('#list').innerHTML = list.map(card).join('') ||
-    `<p class="muted">${all.length ? 'Nothing matches these filters.' : 'Your shelf is empty. Type a title or paste a link in the box at the top.'}</p>`;
+    (all.length ? '<p class="muted">Nothing matches these filters.</p>'
+      : `<div><p class="muted">Your shelf is empty. Type a title or paste a link in the box at the top, or load a list you saved earlier:</p>
+        <label class="btn primary" for="restoreFile">📂 Load my saved list (.json)</label></div>`);
 }
 
 $('#statusFilter').innerHTML += Object.entries(L.STATUSES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
