@@ -352,3 +352,17 @@ export function releaseNews(before, after, now = Date.now()) {
   if (before.releaseStatus && after.releaseStatus && before.releaseStatus !== after.releaseStatus) return 'Now: ' + after.releaseStatus;
   return '';
 }
+
+// Chapter numbers from the daily GitHub job. The first number for a title is just noted; only a higher one later counts as news.
+export function applyChapters(items, updates) {
+  const changed = [];
+  for (const it of items) {
+    const u = updates[it.id];
+    if (!u?.latest || it.deleted || it.latestChapter === u.latest) continue;
+    if (it.latestChapter != null && u.latest > it.latestChapter && it.status !== 'dropped') it.news = 'Chapter ' + u.latest + ' is out';
+    it.latestChapter = u.latest;
+    if (u.url && !it.links.some(l => l.url === u.url)) it.links.push({ label: 'MangaUpdates', url: u.url });
+    changed.push(it);
+  }
+  return changed;
+}

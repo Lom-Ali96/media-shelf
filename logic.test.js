@@ -131,6 +131,17 @@ assert.equal(L.releaseNews({ nextRelease: ep('Episode 5', 100) }, { nextRelease:
 assert.equal(L.releaseNews({ releaseStatus: 'Ongoing' }, { releaseStatus: 'Complete' }, 200), 'Now: Complete');
 assert.equal(L.releaseNews({ releaseStatus: '' }, { releaseStatus: 'Ongoing' }, 200), ''); // first look at a title is not news
 
+// new chapters
+const reader = { id: 'c', title: 'x', status: 'progress', links: [] };
+assert.deepEqual(L.applyChapters([reader], { c: { latest: 50, url: 'https://mu/x' } }), [reader]);
+assert.equal(reader.latestChapter, 50); assert.equal(reader.news, undefined); assert.equal(reader.links.length, 1); // first look: no news
+assert.deepEqual(L.applyChapters([reader], { c: { latest: 50, url: 'https://mu/x' } }), []); // nothing new, nothing to save
+L.applyChapters([reader], { c: { latest: 51, url: 'https://mu/x' } });
+assert.equal(reader.news, 'Chapter 51 is out'); assert.equal(reader.links.length, 1);
+const quitter = { id: 'd', title: 'y', status: 'dropped', links: [], latestChapter: 1 };
+L.applyChapters([quitter], { d: { latest: 2 } }); assert.equal(quitter.news, undefined); assert.equal(quitter.latestChapter, 2);
+assert.deepEqual(L.applyChapters([{ id: 'e', links: [], title: 'z' }], { e: { mu: 0 } }), []); // unknown to MangaUpdates
+
 // websites
 assert.equal(L.siteKey('https://www.royalroad.com/'), 'royalroad.com');
 assert.equal(L.siteKey('not a link'), 'not a link');

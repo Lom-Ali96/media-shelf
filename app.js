@@ -64,7 +64,7 @@ function card(it, index) {
         ${it.grade ? `<span>★ ${it.grade}</span>` : ''}
         ${it.releaseStatus ? `<span class="muted">${esc(it.releaseStatus)}</span>` : ''}</p>
       <div class="row">
-        <span class="muted">${p.current || 0}${p.total ? '/' + p.total : ''} ${esc(p.unit)}${it.rereads ? ` · ${it.rereads}× again` : ''}</span>
+        <span class="muted">${p.current || 0}${p.total || it.latestChapter ? '/' + (p.total || it.latestChapter) : ''} ${esc(p.unit)}${it.rereads ? ` · ${it.rereads}× again` : ''}</span>
         <button data-plus title="One more ${esc(p.unit)}" aria-label="Add one">+1</button>
         <button data-fav aria-label="Favourite" aria-pressed="${!!it.fav}">${it.fav ? '❤' : '♡'}</button>
       </div>
@@ -318,6 +318,7 @@ function openEdit(it) {
       <div><h2>${esc(it.title)}</h2>
         <p class="muted">${esc([it.type, it.year, it.author, it.releaseStatus].filter(Boolean).join(' · '))}</p>
         ${next ? `<p>📅 ${next}</p>` : ''}
+        ${it.latestChapter ? `<p>📖 Latest chapter: ${esc(it.latestChapter)}</p>` : ''}
         ${it.genres?.length ? `<p class="muted">${esc(it.genres.join(', '))}</p>` : ''}</div>
     </div>
     ${rel.length ? `<h3>Other versions of this story</h3><div class="chips">${rel.map(r => r.have
@@ -659,7 +660,7 @@ function renderUpcoming() {
   $('#upcoming').innerHTML = `<h2>New</h2>
     ${news.length ? `<ul>${news.map(i => row(i, `— <b>${esc(i.news)}</b> <button type="button" data-seen="${i.id}" aria-label="Seen ${esc(i.title)}">✓ Seen</button>`)).join('')}</ul><p><button type="button" data-seen="all">✓ Mark all as seen</button></p>`
       : '<p class="muted">Nothing new.</p>'}
-    <p class="muted small">Checked by itself once a day while the app is open${settings.lastCheck ? `. Last check: ${new Date(settings.lastCheck).toLocaleString()}` : ''}.</p>
+    <p class="muted small">Episodes and status are checked by itself once a day while the app is open. With sync on, chapters are checked daily on GitHub, even when your PC is off${settings.lastCheck ? `. Last check: ${new Date(settings.lastCheck).toLocaleString()}` : ''}.</p>
     <h2>Coming up</h2>
     ${dated.length ? `<ul>${dated.map(i => row(i, `— ${esc(i.nextRelease.label)}, ${new Date(i.nextRelease.at).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} (in ${Math.ceil((i.nextRelease.at - now) / 864e5)} days)`)).join('')}</ul>`
       : '<p class="muted">No dates known yet.</p>'}
@@ -842,9 +843,9 @@ const encode = s => {
 };
 const decode = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s/g, '')), c => c.charCodeAt(0)));
 
-function gh(method, body, raw) {
+function gh(method, body, raw, file = 'data.json') {
   const { owner, repo, token } = settings.sync;
-  return fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/data.json`, {
+  return fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${file}`, {
     method, cache: 'no-store', body: body && JSON.stringify(body),
     headers: { Authorization: `Bearer ${token}`, Accept: raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json' },
   });
@@ -878,6 +879,12 @@ async function sync() {
       const r = await gh('PUT', { message: `Update shelf (${live().length} titles)`, content: encode(JSON.stringify({ version: 1, items })), ...(sha && { sha }) });
       if (r.ok) { sha = (await r.json()).content.sha; break; }
       if (![409, 422].includes(r.status) || attempt) throw ghError(r); // 409/422: another device saved first, so pull again and retry once
+    }
+    const chapters = await gh('GET', null, true, 'updates.json'); // written by the daily job in this repository; missing until it first runs
+    if (chapters.ok) {
+      const changed = L.applyChapters(live(), await chapters.json()), fresh = changed.filter(i => i.news).length;
+      if (changed.length) save(...changed);
+      if (fresh) toast(`🔔 New chapters for ${fresh} title${fresh > 1 ? 's' : ''}: see Updates`);
     }
     setSync('Synced ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
   } catch (e) { setSync('⚠ Not synced: ' + e.message); }

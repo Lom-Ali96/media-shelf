@@ -41,7 +41,7 @@ My books, novels, light novels, web novels, manga, manhwa, manhua, anime, series
 
 ## Icons and updates
 
-Small icons beside a title show the other versions of that story, like 📕 manga or 📺 anime. **🔎 To check** gathers titles the online check wasn't sure about. **Updates** shows new episodes and status changes, checked once a day while the app is open.
+Small icons beside a title show the other versions of that story, like 📕 manga or 📺 anime. **🔎 To check** gathers titles the online check wasn't sure about. **Updates** shows new episodes and status changes, checked once a day while the app is open. With sync on, a daily job in the private data repository also finds new chapters on MangaUpdates.
 
 ## Books and audiobooks
 
