@@ -94,7 +94,7 @@ const oldList = [
   { id: 'a', type: 'Audiobook', title: 'dune!', titles: {}, tags: ['not found'], links: [{ label: 'C', url: 'https://c.d' }], status: 'planning', updatedAt: 1 },
   { id: 'l', type: 'Light novel', title: 'Overlord', titles: {}, tags: [], links: [], updatedAt: 1 },
   { id: 'w', type: 'Web novel', title: 'Shadow Slave', titles: {}, tags: [], links: [], updatedAt: 1 },
-  { id: 'h', type: 'Audiobook', title: 'HP monster', titles: {}, tags: [], links: [], updatedAt: 1 },
+  { id: 'h', type: 'Audiobook', title: 'Test Audio Story', titles: {}, tags: [], links: [], updatedAt: 1 },
   { id: 'm', type: 'Manga', title: 'Dune', titles: {}, tags: [], links: [], updatedAt: 1 },
 ];
 const newList = L.migrate(oldList), keptBook = id => newList.find(i => i.id === id);
