@@ -404,3 +404,78 @@ export function rankVoices(voices, lang = 'en') {
   return [...voices].sort((a, b) => quality(b) - quality(a) || closeness(b) - closeness(a) || a.name.localeCompare(b.name))
     .map(voice => ({ voice, recommended: quality(voice) > 0 && closeness(voice) > 0 }));
 }
+
+// ---------- files to read aloud ----------
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', mdash: '—', ndash: '–', hellip: '…', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”' };
+const decodeEntities = s => s.replace(/&(#x?[0-9a-f]+|\w+);/gi, (m, e) => {
+  if (e[0] !== '#') return ENTITIES[e.toLowerCase()] ?? m;
+  const code = /^#x/i.test(e) ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+  return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
+});
+export const htmlToText = html => decodeEntities(String(html || '')
+  .replace(/<(script|style|head)\b[\s\S]*?<\/\1>/gi, ' ').replace(/<!--[\s\S]*?-->/g, ' ')
+  .replace(/<br\b[^>]*>|<\/(p|div|h[1-6]|li|tr|blockquote|section)>/gi, '\n').replace(/<[^>]+>/g, ''))
+  .replace(/[ \t]+/g, ' ').replace(/\n[ \t]+/g, '\n').replace(/\n{2,}/g, '\n').trim();
+
+// PDFs break lines at the page edge: rejoin them unless the line really ended a sentence.
+export const unwrapLines = text => String(text || '').replace(/([^\s.!?…。！？"”:])[ \t]*\n(?=[^\n])/g, '$1 ').trim();
+
+// Minimal zip reader: EPUB and Word files are zip files inside.
+export function readZip(buffer) {
+  const b = new Uint8Array(buffer), v = new DataView(b.buffer, b.byteOffset, b.length), names = new TextDecoder();
+  let end = b.length - 22;
+  while (end >= 0 && v.getUint32(end, true) !== 0x06054b50) end--;
+  if (end < 0) throw new Error('this file looks damaged');
+  const files = new Map();
+  let p = v.getUint32(end + 16, true);
+  for (let i = v.getUint16(end + 10, true); i > 0; i--) {
+    const nameLen = v.getUint16(p + 28, true), local = v.getUint32(p + 42, true);
+    const start = local + 30 + v.getUint16(local + 26, true) + v.getUint16(local + 28, true);
+    files.set(names.decode(b.subarray(p + 46, p + 46 + nameLen)), { method: v.getUint16(p + 10, true), data: b.subarray(start, start + v.getUint32(p + 20, true)) });
+    p += 46 + nameLen + v.getUint16(p + 30, true) + v.getUint16(p + 32, true);
+  }
+  return {
+    has: name => files.has(name),
+    async text(name) {
+      const f = files.get(name);
+      if (!f) throw new Error('this file looks damaged');
+      if (f.method === 0) return new TextDecoder().decode(f.data);
+      return new Response(new Blob([f.data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+    },
+  };
+}
+
+export const docxText = async zip => decodeEntities((await zip.text('word/document.xml')).replace(/<\/w:p>/g, '\n').replace(/<w:(tab|br)\b[^>]*\/>/g, ' ').replace(/<[^>]+>/g, '')).replace(/\n{2,}/g, '\n').trim();
+
+// EPUB: the book's own reading order gives the chapters.
+export async function epubChapters(zip, fallback = 'Chapter') {
+  const opfPath = (await zip.text('META-INF/container.xml')).match(/full-path="([^"]+)"/)?.[1];
+  if (!opfPath) throw new Error('this file looks damaged');
+  const opf = await zip.text(opfPath), base = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/') + 1) : '';
+  const attr = (tag, name) => tag.match(new RegExp('\\b' + name + '="([^"]*)"'))?.[1];
+  const hrefs = new Map([...opf.matchAll(/<item\b[^>]*>/g)].map(m => [attr(m[0], 'id'), attr(m[0], 'href')]));
+  const out = [];
+  for (const m of opf.matchAll(/<itemref\b[^>]*>/g)) {
+    const href = hrefs.get(attr(m[0], 'idref'));
+    if (!href) continue;
+    const path = base + decodeURIComponent(href.split('#')[0]);
+    if (!zip.has(path)) continue;
+    const html = await zip.text(path), text = htmlToText(html);
+    if (text.length < 40) continue; // covers and blank pages
+    const heading = html.match(/<h[1-3]\b[^>]*>([\s\S]*?)<\/h[1-3]>/i)?.[1] || html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+    out.push({ title: htmlToText(heading || '').slice(0, 80) || fallback + ' ' + (out.length + 1), text });
+  }
+  return out;
+}
+
+// Which way a chosen file is handled.
+export function fileKind(name, mime = '') {
+  const ext = String(name).split('.').pop().toLowerCase();
+  if (mime.startsWith('audio/') || mime.startsWith('video/') || ['mp3', 'm4a', 'm4b', 'mp4', 'aac', 'ogg', 'oga', 'opus', 'wav', 'flac', 'webm'].includes(ext)) return 'audio';
+  if (ext === 'pdf') return 'pdf';
+  if (ext === 'epub') return 'epub';
+  if (ext === 'docx') return 'docx';
+  if (['htm', 'html', 'xhtml'].includes(ext)) return 'html';
+  if (['txt', 'md', 'text'].includes(ext) || mime.startsWith('text/')) return 'text';
+  return '';
+}

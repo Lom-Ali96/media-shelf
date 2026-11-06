@@ -45,7 +45,7 @@ Small icons beside a title show the other versions of that story, like 📕 mang
 
 ## Read aloud
 
-In a book or fanfic, press **🔊 Read aloud**, then paste a chapter or load a .txt file. Choose a voice, speed and pitch. Chapters stay on that device (they don't sync), so with a device voice you can listen offline. It can't read websites opened from the app; that needs a separate browser add-on.
+In a book or fanfic, press **🔊 Read aloud**, then paste a chapter or load a file: PDF, EPUB, Word (.docx), HTML and text are read aloud, and MP3, MP4 and other audio files play. Choose a voice, speed and pitch. Chapters stay on that device (they don't sync), so with a device voice you can listen offline. It can't read websites opened from the app; that needs a separate browser add-on.
 
 ## Books and audiobooks
 

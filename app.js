@@ -510,16 +510,29 @@ async function chapterStore(mode, work) {
 }
 const loadChapters = async itemId => (await chapterStore('readonly', s => s.index('item').getAll(itemId))).sort((a, b) => a.n - b.n);
 
+const PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/';
+async function pdfText(file) {
+  const pdfjs = await import(PDFJS + 'pdf.min.mjs').catch(() => { throw new Error('the PDF reader needs internet the first time'); });
+  pdfjs.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.mjs';
+  const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise, pages = [];
+  for (let n = 1; n <= doc.numPages; n++) {
+    const { items } = await (await doc.getPage(n)).getTextContent();
+    pages.push(items.map(i => i.str + (i.hasEOL ? '\n' : ' ')).join(''));
+  }
+  doc.destroy();
+  return pages.join('\n\n');
+}
+
 async function openReader(it) {
   const synth = window.speechSynthesis;
   if (!synth) return toast('This browser cannot read aloud.');
   const prefs = settings.tts ||= { rate: 1, pitch: 1, auto: true };
   const positions = settings.ttsPos ||= {};
-  let chapters = await loadChapters(it.id), pos = positions[it.id] || { ch: 0, s: 0 }, sentences = [], session = 0, spoken = null;
+  let chapters = await loadChapters(it.id), pos = positions[it.id] || { ch: 0, s: 0 }, sentences = [], session = 0, spoken = null, audioUrl = '', lastSaved = 0;
   pos.ch = Math.min(pos.ch, Math.max(0, chapters.length - 1));
 
   showDialog(`<h2>🔊 ${esc(it.title)}</h2>
-    <p class="muted small">Paste a chapter or load a .txt file. Text you add stays on this device, so you can listen in flight mode with a device voice. Voices marked "needs internet" won't work offline.</p>
+    <p class="muted small">Paste a chapter or load a file. Everything you add stays on this device, so it also works in flight mode. For text, offline listening uses a device voice, because voices marked "needs internet" can't work offline.</p>
     <div class="ttsBar"><select id="ttsVoice" aria-label="Voice"></select></div>
     <div class="ttsSliders">
       <label>Speed <output id="ttsRateOut"></output><input id="ttsRate" type="range" min="0.5" max="3" step="0.1" value="${prefs.rate}"></label>
@@ -534,8 +547,9 @@ async function openReader(it) {
     <label class="check"><input type="checkbox" id="ttsAuto" ${prefs.auto ? 'checked' : ''}> Go to the next chapter automatically</label>
     <div id="ttsText" tabindex="0"></div>
     <details id="ttsAddBox"><summary>➕ Add chapters</summary>
+      <p class="muted small">Files: PDF, EPUB, Word (.docx), HTML and text are read aloud. MP3, MP4 and other audio files simply play. Pick several at once to add them as chapters.</p>
       <label>Paste text <small>(lines like "Chapter 12" split it into chapters)</small><textarea id="ttsPaste" rows="4"></textarea></label>
-      <div class="ttsBar"><button type="button" id="ttsAdd">Add pasted text</button> <label class="btn">Load .txt files… <input type="file" id="ttsFile" accept=".txt,text/plain" multiple hidden></label></div>
+      <div class="ttsBar"><button type="button" id="ttsAdd">Add pasted text</button> <label class="btn">Load files… <input type="file" id="ttsFile" accept=".pdf,.epub,.docx,.txt,.md,.htm,.html,.xhtml,.mp3,.m4a,.m4b,.mp4,.aac,.ogg,.oga,.opus,.wav,.flac,.webm,audio/*" multiple hidden></label></div>
     </details>
     <div class="actions"><button type="button" id="ttsBack">Back</button> <button type="button" id="ttsDel" class="danger">Delete this chapter</button></div>`);
 
@@ -557,11 +571,25 @@ async function openReader(it) {
   function showChapter() {
     const c = chapters[pos.ch];
     $('#ttsChapter').innerHTML = chapters.map((x, i) => `<option value="${i}" ${i === pos.ch ? 'selected' : ''}>${esc(x.title)}</option>`).join('') || '<option>No chapters yet</option>';
+    if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = ''; }
+    if (c?.blob) return showAudio(c);
     sentences = c ? L.splitSentences(c.text) : [];
     pos.s = Math.min(pos.s, Math.max(0, sentences.length - 1));
     box().innerHTML = sentences.map((s, i) => `<span data-s="${i}">${esc(s)} </span>`).join('') || '<p class="muted">Add a chapter below to start listening.</p>';
     if (!c) $('#ttsAddBox').open = true;
     mark(false);
+  }
+  function showAudio(c) {
+    sentences = [];
+    audioUrl = URL.createObjectURL(c.blob);
+    box().innerHTML = `<audio id="ttsAudio" controls preload="metadata" src="${audioUrl}" style="width:100%"></audio>`;
+    const a = $('#ttsAudio');
+    a.onloadedmetadata = () => { a.playbackRate = +prefs.rate; if (pos.file === c.id && pos.t) a.currentTime = pos.t; };
+    a.onplay = () => { playBtn().textContent = '⏸ Pause'; };
+    a.onpause = () => { if (playBtn()) playBtn().textContent = '▶ Play'; pos.file = c.id; pos.t = a.currentTime; remember(); };
+    a.ontimeupdate = () => { if (Date.now() - lastSaved > 5000) { lastSaved = Date.now(); pos.file = c.id; pos.t = a.currentTime; remember(); } };
+    a.onended = () => { pos.t = 0; remember(); if (prefs.auto && pos.ch < chapters.length - 1) { pos.ch++; pos.s = 0; showChapter(); play(); } };
+    a.onerror = () => toast('This device cannot play that file format.');
   }
   function mark(scroll = true) {
     box().querySelector('.now')?.classList.remove('now');
@@ -570,8 +598,10 @@ async function openReader(it) {
   }
   function remember() { positions[it.id] = pos; saveSettings(); }
 
-  function halt() { session++; synth.cancel(); if (playBtn()) playBtn().textContent = '▶ Play'; }
+  function halt() { session++; synth.cancel(); $('#ttsAudio')?.pause(); if (playBtn()) playBtn().textContent = '▶ Play'; }
   function play() {
+    const a = $('#ttsAudio');
+    if (a) { session++; synth.cancel(); a.playbackRate = +prefs.rate; return a.play().catch(() => toast('This device cannot play that file format.')); }
     if (!sentences.length) return toast('Add a chapter first.');
     const mine = ++session;
     synth.cancel();
@@ -579,7 +609,7 @@ async function openReader(it) {
     const step = () => {
       if (mine !== session) return;
       if (pos.s >= sentences.length) {
-        if (prefs.auto && pos.ch < chapters.length - 1) { pos.ch++; pos.s = 0; remember(); showChapter(); return step(); }
+        if (prefs.auto && pos.ch < chapters.length - 1) { pos.ch++; pos.s = 0; remember(); showChapter(); return play(); }
         pos.s = 0; remember(); mark(false);
         return halt();
       }
@@ -599,24 +629,40 @@ async function openReader(it) {
   }
   const restartIfPlaying = () => { if (playBtn().textContent.startsWith('⏸')) play(); };
 
-  async function addText(text, title) {
-    const parts = L.splitChapters(text, title), start = chapters.at(-1)?.n ?? -1;
+  async function addParts(parts) {
+    const start = chapters.at(-1)?.n ?? -1;
     if (!parts.length) return toast('There is no text to add.');
-    const made = parts.map((p, i) => ({ id: `${it.id}-${L.newId()}`, itemId: it.id, n: start + 1 + i, title: p.title, text: p.text }));
+    const made = parts.map((p, i) => ({ ...p, id: `${it.id}-${L.newId()}`, itemId: it.id, n: start + 1 + i }));
     try { await chapterStore('readwrite', s => { made.forEach(m => s.put(m)); }); }
     catch (err) { return toast('Could not save: ' + err.message); }
     chapters = await loadChapters(it.id);
-    if (!sentences.length) { pos.ch = 0; pos.s = 0; }
+    if (made.length === chapters.length) { pos.ch = 0; pos.s = 0; }
     showChapter();
     toast(`Added ${made.length} chapter${made.length > 1 ? 's' : ''}`);
   }
+  const addText = (text, title) => addParts(L.splitChapters(text, title));
 
-  stopReading = () => { session++; synth.cancel(); stopReading = () => {}; };
+  async function addFile(f) {
+    const title = f.name.replace(/\.[^.]+$/, ''), kind = L.fileKind(f.name, f.type);
+    if (kind === 'audio') { navigator.storage?.persist?.(); return addParts([{ title, blob: f }]); }
+    if (kind === 'text') return addText(await f.text(), title);
+    if (kind === 'html') return addText(L.htmlToText(await f.text()), title);
+    if (kind === 'docx') return addText(await L.docxText(L.readZip(await f.arrayBuffer())), title);
+    if (kind === 'epub') return addParts(await L.epubChapters(L.readZip(await f.arrayBuffer()), title));
+    if (kind === 'pdf') {
+      const text = await pdfText(f);
+      if (!text.trim()) return toast(`“${f.name}” is only pictures of pages, so there is no text to read.`);
+      return addParts(L.splitChapters(text, title).map(p => ({ ...p, text: L.unwrapLines(p.text) })));
+    }
+    toast(`“${f.name}” is a type I can't open yet.`);
+  }
+
+  stopReading = () => { session++; synth.cancel(); $('#ttsAudio')?.pause(); if (audioUrl) URL.revokeObjectURL(audioUrl); stopReading = () => {}; };
   synth.onvoiceschanged = fillVoices;
   fillVoices(); showNumbers(); showChapter();
 
   dlgForm.oninput = e => {
-    if (e.target.id === 'ttsRate') { prefs.rate = e.target.value; showNumbers(); }
+    if (e.target.id === 'ttsRate') { prefs.rate = e.target.value; showNumbers(); if ($('#ttsAudio')) $('#ttsAudio').playbackRate = +prefs.rate; }
     else if (e.target.id === 'ttsPitch') { prefs.pitch = e.target.value; showNumbers(); }
     else return;
     saveSettings();
@@ -628,8 +674,11 @@ async function openReader(it) {
     if (id === 'ttsAuto') { prefs.auto = e.target.checked; saveSettings(); }
     if (id === 'ttsChapter' && chapters.length) { const was = playBtn().textContent.startsWith('⏸'); halt(); pos.ch = +e.target.value; pos.s = 0; remember(); showChapter(); if (was) play(); }
     if (id === 'ttsFile') {
-      const files = [...e.target.files]; e.target.value = '';
-      for (const f of files) await addText(await f.text(), f.name.replace(/\.txt$/i, ''));
+      const files = [...e.target.files].sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true })); e.target.value = ''; // "ch 2" before "ch 10"
+      for (const f of files) {
+        toast(`Loading ${f.name}…`);
+        try { await addFile(f); } catch (err) { toast(`Could not load “${f.name}”: ${err.message}`); }
+      }
     }
   };
   dlgForm.onclick = async e => {

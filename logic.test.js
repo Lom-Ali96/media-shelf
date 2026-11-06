@@ -1,5 +1,6 @@
 // Run with: node logic.test.js   (prints "all tests passed" or stops at the first failure)
 import assert from 'node:assert/strict';
+import { deflateRawSync } from 'node:zlib';
 import * as L from './logic.js';
 
 // sorting AniList results into sections
@@ -158,6 +159,38 @@ assert.deepEqual(L.splitChapters('A chapter 5 mention in a sentence, and\nChapte
 const ranked = L.rankVoices([{ name: 'Old', lang: 'en-US' }, { name: 'Ana (Natural)', lang: 'de-DE' }, { name: 'Aria Online (Natural)', lang: 'en-US' }, { name: 'Pierre Online', lang: 'fr-FR' }, { name: 'Google US', lang: 'en-US' }], 'de-DE');
 assert.deepEqual(ranked.map(r => r.voice.name), ['Ana (Natural)', 'Aria Online (Natural)', 'Pierre Online', 'Google US', 'Old']);
 assert.deepEqual(ranked.map(r => r.recommended), [true, true, false, true, false]);
+
+// files to read aloud
+assert.equal(L.htmlToText('<html><head><title>T</title><style>p{}</style></head><body><h1>Big</h1><p>One &amp; two&#33;</p><script>bad()</script><p>Caf&eacute;<br>Next</p></body></html>'), 'Big\nOne & two!\nCaf&eacute;\nNext');
+assert.equal(L.unwrapLines('A line that\ngoes on. New one\n\nPara two'), 'A line that goes on. New one\n\nPara two');
+const zipOf = entries => { // small real zip, compressed like EPUB and Word files
+  const enc = new TextEncoder(), locals = [], central = []; let off = 0;
+  for (const [name, text, stored] of entries) {
+    const n = enc.encode(name), raw = enc.encode(text), data = stored ? raw : deflateRawSync(raw), method = stored ? 0 : 8;
+    const lh = Buffer.alloc(30); lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(method, 8); lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(raw.length, 22); lh.writeUInt16LE(n.length, 26);
+    const ch = Buffer.alloc(46); ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(method, 10); ch.writeUInt32LE(data.length, 20); ch.writeUInt32LE(raw.length, 24); ch.writeUInt16LE(n.length, 28); ch.writeUInt32LE(off, 42);
+    locals.push(lh, n, data); central.push(ch, n); off += 30 + n.length + data.length;
+  }
+  const cd = Buffer.concat(central), eo = Buffer.alloc(22); eo.writeUInt32LE(0x06054b50, 0); eo.writeUInt16LE(entries.length, 10); eo.writeUInt32LE(cd.length, 12); eo.writeUInt32LE(off, 16);
+  const all = Buffer.concat([...locals, cd, eo]); return all.buffer.slice(all.byteOffset, all.byteOffset + all.length);
+};
+const long = 'This sentence is long enough to count as a real chapter of the book.';
+const epub = L.readZip(zipOf([
+  ['mimetype', 'application/epub+zip', true],
+  ['META-INF/container.xml', '<rootfile full-path="OEBPS/book.opf"/>'],
+  ['OEBPS/book.opf', '<manifest><item id="c" href="cover.xhtml"/><item href="ch%202.xhtml" id="b"/><item id="a" href="ch1.xhtml"/></manifest><spine><itemref idref="c"/><itemref idref="a"/><itemref idref="b"/><itemref idref="gone"/></spine>'],
+  ['OEBPS/cover.xhtml', '<p>Cover</p>'],
+  ['OEBPS/ch1.xhtml', '<title>x</title><h1>First</h1><p>' + long + '</p>'],
+  ['OEBPS/ch 2.xhtml', '<p>' + long + '</p>'],
+]));
+const epubOut = await L.epubChapters(epub, 'Part');
+assert.deepEqual(epubOut.map(c => c.title), ['First', 'Part 2']); // reading order from the book, cover skipped
+assert.ok(epubOut[0].text.endsWith(long));
+assert.equal(await L.docxText(L.readZip(zipOf([['word/document.xml', '<w:p><w:r><w:t>Hello &amp; hi</w:t></w:r></w:p><w:p><w:r><w:t>Second</w:t></w:r></w:p>']]))), 'Hello & hi\nSecond');
+assert.throws(() => L.readZip(new ArrayBuffer(50)), /damaged/);
+await assert.rejects(L.epubChapters(L.readZip(zipOf([['a', 'b']]))), /damaged/);
+assert.equal(L.fileKind('Book.MP3'), 'audio'); assert.equal(L.fileKind('x.mp4'), 'audio'); assert.equal(L.fileKind('x.bin', 'audio/mpeg'), 'audio');
+assert.equal(L.fileKind('a.pdf'), 'pdf'); assert.equal(L.fileKind('a.epub'), 'epub'); assert.equal(L.fileKind('a.docx'), 'docx'); assert.equal(L.fileKind('a.html'), 'html'); assert.equal(L.fileKind('a.md'), 'text'); assert.equal(L.fileKind('a.doc'), '');
 
 // websites
 assert.equal(L.siteKey('https://www.royalroad.com/'), 'royalroad.com');
